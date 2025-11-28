@@ -1,36 +1,48 @@
 <script setup lang="ts">
-import { computed, defineEmits, defineProps, reactive, watch } from 'vue'
-
-type Field = {
-  key: string
-  label: string
-  type: string
-  placeholder?: string
-  required: boolean
-  helper?: string
-}
+import { computed, defineEmits, defineProps, reactive, ref, watch } from 'vue'
+import { Switch } from '@headlessui/vue'
+import type { CampaignData } from '@/types/campaign-response'
 
 const props = defineProps<{
-  fields: Field[]
-  ctaLabel: string
-  theme?: 'light' | 'dark'
-  loading?: boolean
-  submitting?: boolean
-  message?: string | null
+  campaign: CampaignData | null
 }>()
 
 const emits = defineEmits<{
-  (event: 'submit', payload: Record<string, string>): void
+  (event: 'submit', payload: Record<string, any>): void
 }>()
 
-const formState = reactive<Record<string, string>>({})
+const formState = reactive<Record<string, any>>({})
+
+const fields = computed(() => {
+  const form = props.campaign?.campaign_game?.config.form
+  if (!form) {
+    return [] as any[]
+  }
+
+  return Object.entries(form).map(([key, field]: [string, any]) => ({
+    key,
+    label: field.data.label ?? field.data.key ?? 'Campo sin nombre',
+    type: field.type.toLowerCase(),
+    placeholder: field.data.placeholder,
+    required: Boolean(field.data.required),
+    helper: field.data.helper,
+    options: field.data.options ?? [],
+    // bring the checked flag for checkbox fields
+    checked: field.data.checked ?? false,
+  }))
+})
 
 watch(
-  () => props.fields,
-  (fields) => {
-    const next: Record<string, string> = {}
-    fields.forEach((field) => {
-      next[field.key] = formState[field.key] ?? ''
+  fields,
+  (value) => {
+    const next: Record<string, any> = {}
+    value.forEach((field) => {
+      if (field.type === 'checkbox') {
+        // for checkboxes use the provided checked default (boolean)
+        next[field.key] = formState[field.key] ?? Boolean((field as any).checked ?? false)
+      } else {
+        next[field.key] = formState[field.key] ?? ''
+      }
     })
     Object.keys(formState).forEach((key) => {
       if (!(key in next)) {
@@ -42,59 +54,108 @@ watch(
   { immediate: true },
 )
 
-const themeClasses = computed(() => ({
-  primary: props.theme === 'light' ? 'text-slate-700' : 'text-white',
-  secondary: props.theme === 'light' ? 'text-slate-500' : 'text-white/70',
-  muted: props.theme === 'light' ? 'text-slate-500' : 'text-white/60',
-  label: props.theme === 'light' ? 'text-slate-600' : 'text-white/60',
-  input:
-    props.theme === 'light'
+const themeClasses = computed(() => {
+  const theme = props.campaign?.campaign_game?.config.form_theme
+  const isLight = theme === 'light'
+  return {
+    primary: isLight ? 'text-slate-700' : 'text-white',
+    secondary: isLight ? 'text-slate-500' : 'text-white/70',
+    muted: isLight ? 'text-slate-500' : 'text-white/60',
+    label: isLight ? 'text-slate-600' : 'text-white/60',
+    input: isLight
       ? 'border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-amber-400/40'
       : 'border border-white/20 bg-white/5 text-white focus:ring-1 focus:ring-amber-400/60',
+  }
+})
+
+const ctaLabel = computed(() => props.campaign?.campaign_game?.config.cta_button?.label ?? 'Spin it')
+const header = computed(() => ({
+  title: props.campaign?.campaign_game?.config.form_header?.title ?? 'Gana premios al instante',
+  description:
+    props.campaign?.campaign_game?.config.form_header?.description ??
+    '<p>Ingresa tus datos para girar la ruleta y reclamar recompensas.</p>',
+}))
+const formMessage = ref<string | null>(null)
+const submitting = ref(false)
+const isHovering = ref(false)
+
+const adjustColor = (hex: string, amount: number): string => {
+  const normalized = hex.replace('#', '')
+  const num = parseInt(normalized, 16)
+  const r = Math.min(255, Math.max(0, ((num >> 16) & 0xff) + amount))
+  const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amount))
+  const b = Math.min(255, Math.max(0, (num & 0xff) + amount))
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
+}
+
+const ctaButton = computed(() => props.campaign?.campaign_game?.config.cta_button)
+const buttonClasses = computed(() => [
+  'w-full rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60',
+  ctaButton.value?.full_width ? 'w-full' : '',
+])
+
+const buttonStyle = computed(() => ({
+  background: ctaButton.value?.bg_color ?? '#f97316',
+  color: ctaButton.value?.text_color ?? '#111827',
 }))
 
+const hoverBackground = computed(() => adjustColor(buttonStyle.value.background, 12))
+const activeBackground = computed(() => (isHovering.value ? hoverBackground.value : buttonStyle.value.background))
+
+const alignClass = computed(() => {
+  const align = ctaButton.value?.align
+  if (align === 'center') {
+    return 'justify-center'
+  }
+  if (align === 'right') {
+    return 'justify-end'
+  }
+  return 'justify-start'
+})
+
 const handleSubmit = () => {
+  submitting.value = true
   emits('submit', { ...formState })
+  formMessage.value = '¡Todo listo para registrar tu participación!'
+  submitting.value = false
 }
 </script>
 
 <template>
   <div>
     <div class="space-y-2">
-      <h2 class="text-3xl font-bold text-amber-500">Gana premios al instante</h2>
-      <p class="text-sm text-slate-500">
-        Ingresa tus datos para girar la ruleta y reclamar recompensas.
-      </p>
+      <h2 class="text-3xl font-bold text-amber-500">{{ header.title }}</h2>
+      <p class="text-sm text-slate-500" v-html="header.description"></p>
     </div>
     <form @submit.prevent="handleSubmit" class="mt-6 space-y-4">
       <div
-        v-if="props.loading"
+        v-if="!props.campaign"
         :class="[
           'rounded-2xl border p-4 text-sm',
           themeClasses.muted,
-          props.theme === 'light' ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/5',
+          themeClasses.primary === 'text-slate-700' ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/5',
         ]"
       >
         Esperando la configuración de la campaña...
       </div>
       <div
-        v-else-if="!props.fields.length"
+        v-else-if="!fields.length"
         :class="[
           'rounded-2xl border p-4 text-sm',
           themeClasses.muted,
-          props.theme === 'light' ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/5',
+          themeClasses.primary === 'text-slate-700' ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/5',
         ]"
       >
         El formulario aún no tiene campos configurados.
       </div>
-      <div v-for="field in props.fields" :key="field.key" class="space-y-2">
+      <div v-for="field in fields" :key="field.key" class="space-y-2">
         <label
-          :class="['text-xs font-semibold uppercase tracking-[0.3em]', themeClasses.label]"
+            :class="['text-xs font-semibold uppercase tracking-[0.3em]', themeClasses.label]"
           :for="field.key"
         >
           {{ field.label }}
         </label>
-        <template v-if="field.type.toLowerCase() === 'textarea'">
+        <template v-if="field.type === 'textarea'">
           <textarea
             :id="field.key"
             v-model="formState[field.key]"
@@ -103,11 +164,41 @@ const handleSubmit = () => {
             :class="['h-28 w-full rounded-2xl px-4 py-3 text-sm outline-none transition', themeClasses.input]"
           ></textarea>
         </template>
+        <template v-else-if="field.type === 'select'">
+          <select
+            :id="field.key"
+            v-model="formState[field.key]"
+            :required="field.required"
+            :class="['w-full rounded-2xl px-4 py-3 text-sm outline-none transition', themeClasses.input]"
+          >
+            <option value="" disabled selected>Selecciona...</option>
+            <option v-for="option in field.options" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </template>
+        <template v-else-if="field.type === 'checkbox'">
+          <Switch
+            :id="field.key"
+            v-model="formState[field.key]"
+            as="button"
+            :class="[
+              'flex w-full items-center justify-between rounded-2xl px-4 py-3 text-sm transition',
+              themeClasses.input,
+            ]"
+            @click="formState[field.key] = !formState[field.key]"
+          >
+            <span :class="themeClasses.primary">{{ field.label }}</span>
+            <span class="text-xs text-slate-400">
+              {{ formState[field.key] ? 'Sí' : 'No' }}
+            </span>
+          </Switch>
+        </template>
         <template v-else>
           <input
             :id="field.key"
             v-model="formState[field.key]"
-            :type="field.type.toLowerCase()"
+            :type="field.type"
             :placeholder="field.placeholder ?? ''"
             :required="field.required"
             :class="['w-full rounded-2xl px-4 py-3 text-sm outline-none transition', themeClasses.input]"
@@ -117,25 +208,25 @@ const handleSubmit = () => {
           {{ field.helper }}
         </p>
       </div>
-      <button
-        type="submit"
-        :class="[
-          'w-full rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60',
-          'bg-amber-400 text-black hover:bg-amber-300',
-        ]"
-        :disabled="props.submitting || !props.fields.length"
-      >
-        {{ props.submitting ? 'Enviando...' : props.ctaLabel }}
-      </button>
-      <p v-if="props.message" :class="['text-xs', themeClasses.muted]">
-        {{ props.message }}
+      <div :class="['flex', alignClass]">
+        <button
+          type="submit"
+          :class="[...buttonClasses, 'cursor-pointer']"
+          :style="[{ background: activeBackground }, { color: buttonStyle.color }]"
+          :disabled="submitting || !fields.length"
+          @mouseenter="isHovering = true"
+          @mouseleave="isHovering = false"
+        >
+          {{ submitting ? 'Enviando...' : ctaLabel }}
+        </button>
+      </div>
+      <p v-if="formMessage" :class="['text-xs', themeClasses.muted]">
+        {{ formMessage }}
       </p>
       <p v-else :class="['text-xs', themeClasses.secondary]">
         El formulario aún está en modo de prueba hasta integrar el backend real.
       </p>
-      <p class="mt-3 text-xs tracking-[0.3em]" :class="themeClasses.secondary">
-        POWER BY RULETAXPRESS
-      </p>
+
     </form>
   </div>
 </template>

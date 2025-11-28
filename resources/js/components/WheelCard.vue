@@ -8,15 +8,18 @@ import type {
   WinwheelPins,
   WinwheelSegment,
 } from '@/types/winwheel-types'
-import type { WheelConfig, WheelPointer, WheelButton, WheelAudio } from '@/types/wheel-config'
+import type { WheelConfig } from '@/types/wheel-config'
+import type { CampaignData } from '@/types/campaign'
 import { computed, defineProps, onMounted, ref, watch } from 'vue'
+import { defaultWheelConfig } from '@/types/wheel-config'
 
 const props = defineProps<{
-  config: WheelConfig
+  campaign: CampaignData | null
   title?: string
   loading?: boolean
   error?: string | null
   theme?: 'light' | 'dark'
+  formReady?: boolean
 }>()
 
 const pointerPlacement: Record<string, { left: string; top: string; rot: string }> = {
@@ -44,17 +47,58 @@ const pointerAngles: Record<string, number> = {
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const wheelInstance = ref<WinwheelInstance | null>(null)
 const isSpinning = ref(false)
-const animationRef = ref<WinwheelAnimation | null>(null)
-const defaultTheme = computed(() => (props.theme === 'light' ? 'light' : 'dark'))
 
-const pointerColor = computed(() =>
-  props.config.pointer?.color ?? '#fbbf24',
-)
+const campaignSegments = computed<WinwheelSegment[]>(() => {
+  const raw = props.campaign?.campaign_game?.config.segments
+  if (!raw?.length) {
+    return defaultWheelConfig.segments
+  }
+
+  return raw.map((segment, index) => ({
+    fillStyle:
+      segment.fillStyle ?? defaultWheelConfig.segments[index % defaultWheelConfig.segments.length].fillStyle,
+    strokeStyle: segment.strokeStyle ?? '#111827',
+    lineWidth: segment.lineWidth ?? 2,
+    text: segment.text ?? segment.label ?? segment.cupon ?? `Premio ${index + 1}`,
+  }))
+})
+
+const campaignConfig = computed<WheelConfig>(() => {
+  const config = props.campaign?.campaign_game?.config
+  return {
+    ...defaultWheelConfig,
+    wheel: {
+      ...defaultWheelConfig.wheel,
+      outerRadius: config?.outerRadius ?? defaultWheelConfig.wheel.outerRadius,
+      innerRadius: config?.innerRadius ?? defaultWheelConfig.wheel.innerRadius,
+      strokeStyle: config?.strokeStyle ?? defaultWheelConfig.wheel.strokeStyle,
+      lineWidth: config?.lineWidth ?? defaultWheelConfig.wheel.lineWidth,
+      animation: {
+        ...defaultWheelConfig.wheel.animation,
+        ...(config?.animation ?? {}),
+      },
+      pointerAngle: config?.pointerAngle ?? defaultWheelConfig.wheel.pointerAngle,
+    },
+    segments: campaignSegments.value,
+    pointer: {
+      color: config?.pointer?.color ?? defaultWheelConfig.pointer?.color,
+      position: config?.pointer?.position ?? defaultWheelConfig.pointer?.position,
+    },
+    button: defaultWheelConfig.button,
+    layout: defaultWheelConfig.layout,
+    audio: defaultWheelConfig.audio,
+  }
+})
+
+const pointerColor = computed(() => campaignConfig.value.pointer?.color ?? '#fbbf24')
+
+const currentPointer = computed(() => ({
+  integratedOnButton: campaignConfig.value.pointer?.integratedOnButton ?? false,
+  position: campaignConfig.value.pointer?.position ?? 'top',
+}))
 
 const pointerStyle = computed(() => {
-  const pointer: WheelPointer | undefined = props.config.pointer
-  const placement = pointerPlacement[pointer?.position || 'top'] ?? pointerPlacement.top
-
+  const placement = pointerPlacement[currentPointer.value.position || 'top'] ?? pointerPlacement.top
   return {
     left: placement.left,
     top: placement.top,
@@ -64,8 +108,8 @@ const pointerStyle = computed(() => {
 })
 
 const spinButtonStyle = computed(() => {
-  const baseSize = props.config.button?.size ?? 140
-  if (props.config.button?.position === 'outside') {
+  const baseSize = campaignConfig.value.button?.size ?? 140
+  if (campaignConfig.value.button?.position === 'outside') {
     return {
       width: `${baseSize + 40}px`,
       height: '56px',
@@ -90,12 +134,12 @@ const spinButtonClass = computed(() => {
     'top-[108%] left-1/2 -translate-x-1/2 transform rounded-xl shadow-[0_12px_24px_rgba(0,0,0,0.45),0_0_0_2px_rgba(15,23,42,0.9)] text-base'
 
   return `${base} ${
-    props.config.button?.position === 'outside' ? outside : inside
+    campaignConfig.value.button?.position === 'outside' ? outside : inside
   }`
 })
 
 const animationOptions = computed<WinwheelAnimation>(() => {
-  const animation = props.config.wheel.animation
+  const animation = campaignConfig.value.wheel.animation
   const opts: WinwheelAnimation = {
     type: animation?.type ?? 'spinToStop',
     duration: animation?.duration ?? 6,
@@ -122,9 +166,9 @@ const buildWheel = () => {
   wheelInstance.value?.stopAnimation(true)
 
   const pins: WinwheelPins | null =
-    props.config.audio?.pins && props.config.audio.pins > 0
+    campaignConfig.value.audio?.pins && campaignConfig.value.audio.pins > 0
       ? {
-          number: props.config.audio.pins,
+          number: campaignConfig.value.audio.pins,
           outerRadius: 5,
           margin: 8,
           fillStyle: '#f8fafc',
@@ -136,31 +180,33 @@ const buildWheel = () => {
   const options: WinwheelOptions = {
     canvasId: 'wheelCanvas',
     canvasElement: canvas,
-    numSegments: props.config.segments.length,
-    outerRadius: props.config.wheel.outerRadius ?? 240,
-    innerRadius: props.config.wheel.innerRadius ?? 60,
-    textFontSize: props.config.wheel.textFontSize ?? 16,
-    textAlignment: props.config.wheel.textAlignment ?? 'outer',
-    textFillStyle: props.config.wheel.textFillStyle ?? '#0f172a',
-    strokeStyle: props.config.wheel.strokeStyle ?? '#111827',
-    lineWidth: props.config.wheel.lineWidth ?? 2,
+    numSegments: campaignConfig.value.segments.length,
+    outerRadius: campaignConfig.value.wheel.outerRadius ?? 240,
+    innerRadius: campaignConfig.value.wheel.innerRadius ?? 60,
+    textFontSize: campaignConfig.value.wheel.textFontSize ?? 16,
+    textAlignment: campaignConfig.value.wheel.textAlignment ?? 'outer',
+    textFillStyle: campaignConfig.value.wheel.textFillStyle ?? '#0f172a',
+    strokeStyle: campaignConfig.value.wheel.strokeStyle ?? '#111827',
+    lineWidth: campaignConfig.value.wheel.lineWidth ?? 2,
     animation: animationOptions.value,
-    segments: props.config.segments,
+    segments: campaignConfig.value.segments,
     pins: pins ?? undefined,
-    clearTheCanvas: props.config.wheel.clearTheCanvas ?? true,
+    clearTheCanvas: campaignConfig.value.wheel.clearTheCanvas ?? true,
   }
 
   const WinwheelCtor = Winwheel as unknown as WinwheelConstructor
   wheelInstance.value = new WinwheelCtor(options)
   wheelInstance.value.pointerAngle =
-    props.config.wheel.pointerAngle ??
-    pointerAngles[props.config.pointer?.position || 'top'] ??
+    campaignConfig.value.wheel.pointerAngle ??
+    pointerAngles[campaignConfig.value.pointer?.position || 'top'] ??
     0
   wheelInstance.value.draw()
 }
 
+const isReady = computed(() => !!props.formReady)
+
 const handleSpin = () => {
-  if (isSpinning.value || !wheelInstance.value) {
+  if (!isReady.value || isSpinning.value || !wheelInstance.value) {
     return
   }
 
@@ -169,7 +215,7 @@ const handleSpin = () => {
 }
 
 watch(
-  () => props.config,
+  () => props.campaign,
   () => {
     buildWheel()
   },
@@ -201,13 +247,13 @@ onMounted(() => {
         {{ props.title }}
       </div>
       <div
-        v-show="!props.config.pointer?.integratedOnButton"
+        v-show="!currentPointer.integratedOnButton"
         class="absolute h-8 w-9 origin-center rounded-[4px] drop-shadow-[0_8px_8px_rgba(15,23,42,0.8)] transition-all duration-200"
         :style="pointerStyle"
       />
       <canvas
         ref="canvasRef"
-        :id="'wheelCanvas'"
+        id="wheelCanvas"
         width="520"
         height="520"
         class="h-full w-full max-w-full rounded-full bg-[radial-gradient(circle,#020617_0%,#0b1120_60%,#020617_100%)] shadow-[0_0_0_6px_rgba(148,163,184,0.45),0_20px_60px_rgba(0,0,0,0.8)]"
@@ -217,16 +263,13 @@ onMounted(() => {
         class="cursor-pointer"
         :class="spinButtonClass"
         :style="spinButtonStyle"
-        :disabled="isSpinning"
+        :disabled="isSpinning || !isReady"
         @click="handleSpin"
       >
         <span
-          v-if="props.config.pointer?.integratedOnButton"
+        v-if="currentPointer.integratedOnButton"
           class="absolute -top-4 left-1/2 block h-5 w-6 -translate-x-1/2 drop-shadow-[0_6px_6px_rgba(15,23,42,0.45)] transition-all duration-200"
-          :style="{
-            clipPath: 'polygon(50% 100%, 100% 0, 0 0)',
-            background: pointerColor,
-          }"
+          :style="{ clipPath: 'polygon(50% 100%, 100% 0, 0 0)', background: pointerColor }"
         />
         {{ isSpinning ? 'Girando' : 'Girar' }}
       </button>
@@ -247,6 +290,12 @@ onMounted(() => {
         ]"
       >
         {{ props.error }}
+      </div>
+      <div
+        v-if="!isReady"
+        class="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-4 py-2 text-xs font-semibold text-white"
+      >
+        Completa el formulario para girar
       </div>
     </div>
   </div>
