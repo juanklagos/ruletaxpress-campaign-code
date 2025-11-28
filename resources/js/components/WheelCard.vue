@@ -10,7 +10,7 @@ import type {
 } from '@/types/winwheel-types'
 // wheel-config types intentionally not imported here to avoid strict coupling
 import type { CampaignData } from '@/types/campaign'
-import { computed, defineProps, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineProps, defineEmits, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { defaultWheelConfig } from '@/types/wheel-config'
 
 const props = defineProps<{
@@ -20,6 +20,12 @@ const props = defineProps<{
   error?: string | null
   theme?: 'light' | 'dark'
   formReady?: boolean
+  formData?: Record<string, string> | null
+  fullLayout?: boolean
+}>()
+
+const emit = defineEmits<{
+  (e: 'finished', payload: { prize?: string } ): void
 }>()
 
 type PointerStyle = 'triangle' | 'arrow' | 'diamond' | 'kite' | 'shield' | 'tag' | 'chevron'
@@ -205,13 +211,13 @@ const buildWheel = () => {
     canvasId: cfg.canvasId ?? canvasId,
     canvasElement: canvasRef.value ?? undefined,
     numSegments: cfg.numSegments ?? campaignSegments.value.length,
-    outerRadius: cfg.outerRadius ?? defaultWheelConfig.wheel.outerRadius,
-    innerRadius: cfg.innerRadius ?? defaultWheelConfig.wheel.innerRadius,
-    textFontSize: cfg.textFontSize ?? defaultWheelConfig.wheel.textFontSize,
-    textAlignment: cfg.textAlignment ?? defaultWheelConfig.wheel.textAlignment ?? 'outer',
-    textFillStyle: cfg.textFillStyle ?? defaultWheelConfig.wheel.textFillStyle,
-    strokeStyle: cfg.strokeStyle ?? defaultWheelConfig.wheel.strokeStyle,
-    lineWidth: cfg.lineWidth ?? defaultWheelConfig.wheel.lineWidth,
+    outerRadius: cfg.outerRadius ?? (defaultWheelConfig?.wheel?.outerRadius ?? 210),
+    innerRadius: cfg.innerRadius ?? (defaultWheelConfig?.wheel?.innerRadius ?? 0),
+    textFontSize: cfg.textFontSize ?? (defaultWheelConfig?.wheel?.textFontSize ?? 14),
+    textAlignment: cfg.textAlignment ?? (defaultWheelConfig?.wheel?.textAlignment ?? 'outer'),
+    textFillStyle: cfg.textFillStyle ?? (defaultWheelConfig?.wheel?.textFillStyle ?? '#111827'),
+    strokeStyle: cfg.strokeStyle ?? (defaultWheelConfig?.wheel?.strokeStyle ?? '#111827'),
+    lineWidth: cfg.lineWidth ?? (defaultWheelConfig?.wheel?.lineWidth ?? 1),
     animation: {
       type: animation.type ?? 'spinToStop',
       duration: animation.duration ?? 6,
@@ -221,6 +227,27 @@ const buildWheel = () => {
       stopAngle: animation.stopAngle ?? undefined,
       callbackFinished: () => {
         isSpinning.value = false
+
+        // Try to determine the winning segment text
+        let prize = 'Premio desconocido'
+        try {
+          const w: any = wheel.value
+          // Winwheel exposes helpers like getIndicatedSegment() or getIndicatedSegmentNumber()
+          const indicatedSegment = typeof w?.getIndicatedSegment === 'function' ? w.getIndicatedSegment() : undefined
+          const indicatedNumber = typeof w?.getIndicatedSegmentNumber === 'function' ? w.getIndicatedSegmentNumber() : undefined
+
+          if (indicatedSegment) {
+            prize = indicatedSegment.text ?? indicatedSegment.label ?? prize
+          } else if (typeof indicatedNumber === 'number' && Array.isArray(w?.segments)) {
+            // segments might be 1-indexed in Winwheel
+            const seg = w.segments[indicatedNumber] ?? w.segments[indicatedNumber - 1]
+            if (seg) prize = seg.text ?? seg.label ?? prize
+          }
+        } catch {
+          // ignore and fallback to unknown prize
+        }
+
+        emit('finished', { prize })
       },
       callbackSound: null,
       soundTrigger: animation.soundTrigger ?? undefined,

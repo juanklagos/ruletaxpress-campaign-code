@@ -13,6 +13,9 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const campaign = ref<CampaignData | null>(null)
 const formReady = ref(false)
+const formValid = ref(false)
+const submittedData = ref<Record<string, string> | null>(null)
+const spinResult = ref<{ prize: string; formData: Record<string, string> | null } | null>(null)
 
 const normalizedTheme = computed<'light' | 'dark'>(() => {
   const raw = campaign.value?.campaign_game?.config.form_theme
@@ -36,11 +39,21 @@ const innerContainerClass = computed(() =>
 
 const handleFormSubmit = (values: Record<string, string>) => {
   console.log('form submitted', values)
+  // Save submitted data and enable the wheel
+  submittedData.value = values
   formReady.value = true
 }
 
 const handleFormReady = (ready: boolean) => {
-  formReady.value = ready
+  // keep track of validation, but don't enable the wheel yet
+  formValid.value = ready
+}
+
+const handleSpinFinished = (payload: { prize?: string } | any) => {
+  const prize = payload?.prize ?? (payload?.result ?? 'Premio desconocido')
+  spinResult.value = { prize, formData: submittedData.value }
+  // Optionally, disable further spins until user resubmits
+  formReady.value = false
 }
 
 const fetchCampaign = async (): Promise<void> => {
@@ -79,7 +92,7 @@ onMounted(() => {
     <div class="w-full max-w-6xl">
       <div :class="[innerContainerClass]">
         <div class="flex flex-col items-center justify-center gap-8 md:flex-row">
-        <div class="flex-1">
+        <div class="flex-1" :style="submittedData ? { '--wheel-size': '720px' } : {}">
           <WheelCard
             :campaign="campaign"
             :title="campaign?.campaign_game?.name"
@@ -87,16 +100,31 @@ onMounted(() => {
             :error="error"
             :theme="normalizedTheme"
             :form-ready="formReady"
+            :form-data="submittedData"
+            :full-layout="Boolean(submittedData)"
+            @finished="handleSpinFinished"
           />
           </div>
-          <div class="flex-1">
+          <div v-if="!submittedData" class="flex-1">
             <GameForm :campaign="campaign" @submit="handleFormSubmit" @ready="handleFormReady" />
           </div>
         </div>
       </div>
     </div>
-        <p class="mt-3 text-xs tracking-[0.3em]">
-        POWER BY RULETAXPRESS
-      </p>
+          <p class="mt-3 text-xs tracking-[0.3em]">
+          POWER BY RULETAXPRESS
+        </p>
+        <div v-if="spinResult" class="mt-6 rounded-lg border p-4 bg-white/5">
+          <h3 class="text-lg font-semibold">Resultado</h3>
+          <p class="mt-2 font-medium">Ganaste: <span class="text-amber-400">{{ spinResult.prize }}</span></p>
+          <div v-if="spinResult.formData" class="mt-3 text-sm">
+            <h4 class="font-semibold">Datos enviados:</h4>
+            <ul class="mt-2 list-disc list-inside">
+              <li v-for="(v, k) in spinResult.formData" :key="k">
+                <strong class="mr-2">{{ k }}:</strong> {{ v }}
+              </li>
+            </ul>
+          </div>
+        </div>
   </div>
 </template>
