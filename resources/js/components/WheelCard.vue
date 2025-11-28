@@ -151,6 +151,7 @@ const spinButtonStyle = computed(() => ({
 const spinButtonClasses = computed(() => ({
   'spin-button--outside': buttonPosition.value === 'outside',
   'spin-button--with-pointer': pointerOnButton.value,
+  'spin-button--disabled': !isReady.value || isSpinning.value,
 }))
 
 const campaignConfig = computed(() => {
@@ -300,6 +301,7 @@ onBeforeUnmount(() => {
         :class="spinButtonClasses"
         :style="spinButtonStyle"
         @click="handleSpin"
+        :disabled="!isReady || isSpinning"
       >
         Girar
       </button>
@@ -484,6 +486,13 @@ onBeforeUnmount(() => {
   box-shadow:
     0 0 0 2px rgba(15, 23, 42, 1),
     0 14px 26px rgba(0, 0, 0, 0.8);
+}
+
+.spin-button[disabled],
+.spin-button--disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  box-shadow: none;
 }
 
 @media (max-width: 980px) {

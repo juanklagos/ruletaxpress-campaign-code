@@ -39,6 +39,10 @@ const handleFormSubmit = (values: Record<string, string>) => {
   formReady.value = true
 }
 
+const handleFormReady = (ready: boolean) => {
+  formReady.value = ready
+}
+
 const fetchCampaign = async (): Promise<void> => {
   loading.value = true
   error.value = null
@@ -86,7 +90,7 @@ onMounted(() => {
           />
           </div>
           <div class="flex-1">
-            <GameForm :campaign="campaign" @submit="handleFormSubmit" />
+            <GameForm :campaign="campaign" @submit="handleFormSubmit" @ready="handleFormReady" />
           </div>
         </div>
       </div>

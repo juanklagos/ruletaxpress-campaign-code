@@ -9,6 +9,7 @@ const props = defineProps<{
 
 const emits = defineEmits<{
   (event: 'submit', payload: Record<string, string>): void
+  (event: 'ready', isReady: boolean): void
 }>()
 
 const formState = reactive<Record<string, any>>({})
@@ -31,6 +32,71 @@ const fields = computed(() => {
     checked: field.data.checked ?? false,
   }))
 })
+
+// error messages per field (null = no error)
+const errors = reactive<Record<string, string | null>>({})
+
+// initialize errors keys when fields change
+watch(
+  fields,
+  (value) => {
+    value.forEach((field) => {
+      if (!(field.key in errors)) {
+        errors[field.key] = null
+      }
+    })
+  },
+  { immediate: true },
+)
+
+// validate a single field and set an inline error message (returns true if valid)
+const validateField = (field: any): boolean => {
+  const val = formState[field.key]
+  let msg: string | null = null
+
+  // required checks
+  if (field.required) {
+    if (field.type === 'checkbox') {
+      if (!Boolean(val)) {
+        msg = 'Este campo es obligatorio.'
+      }
+    } else if (String(val ?? '').trim().length === 0) {
+      msg = 'Este campo es obligatorio.'
+    }
+  }
+
+  // type specific checks (only if not already failing required)
+  if (!msg && String(val ?? '').trim().length) {
+    if (field.type === 'email') {
+      if (!/\S+@\S+\.\S+/.test(String(val))) {
+        msg = 'Introduce un correo válido.'
+      }
+    }
+    if (field.type === 'number') {
+      if (isNaN(Number(val))) {
+        msg = 'Introduce un número válido.'
+      }
+    }
+    if (field.type === 'date') {
+      const parsed = Date.parse(String(val))
+      if (Number.isNaN(parsed)) {
+        msg = 'Introduce una fecha válida.'
+      }
+    }
+  }
+
+  errors[field.key] = msg
+  return msg === null
+}
+
+// validate all fields when the form state changes
+watch(
+  formState,
+  () => {
+    fields.value.forEach((f: any) => validateField(f))
+  },
+  { deep: true },
+)
 
 watch(
   fields,
@@ -115,6 +181,15 @@ const alignClass = computed(() => {
 
 const handleSubmit = () => {
   submitting.value = true
+
+  // validate all fields before submit
+  fields.value.forEach((f: any) => validateField(f))
+  if (!isValid.value) {
+    formMessage.value = 'Por favor, corrige los campos marcados.'
+    submitting.value = false
+    return
+  }
+
   // normalize values: booleans -> '1'|'0', others -> string
   const payload: Record<string, string> = {}
   Object.entries(formState).forEach(([key, value]) => {
@@ -131,6 +206,16 @@ const handleSubmit = () => {
   formMessage.value = '¡Todo listo para registrar tu participación!'
   submitting.value = false
 }
+
+// Validity is derived from `errors` object. A field is valid when its error is null.
+const isValid = computed(() => {
+  if (!fields.value || !fields.value.length) return false
+  return fields.value.every((f: any) => (errors[f.key] === null))
+})
+
+watch(isValid, (next) => {
+  emits('ready', next)
+}, { immediate: true })
 </script>
 
 <template>
@@ -216,6 +301,9 @@ const handleSubmit = () => {
             :class="['w-full rounded-2xl px-4 py-3 text-sm outline-none transition', themeClasses.input]"
           />
         </template>
+        <p v-if="errors[field.key]" :class="['text-xs text-red-500']">
+          {{ errors[field.key] }}
+        </p>
         <p v-if="field.helper" :class="['text-xs', themeClasses.secondary]">
           {{ field.helper }}
         </p>
@@ -225,7 +313,7 @@ const handleSubmit = () => {
           type="submit"
           :class="[...buttonClasses, 'cursor-pointer']"
           :style="[{ background: activeBackground }, { color: buttonStyle.color }]"
-          :disabled="submitting || !fields.length"
+          :disabled="submitting || !fields.length || !isValid"
           @mouseenter="isHovering = true"
           @mouseleave="isHovering = false"
         >
