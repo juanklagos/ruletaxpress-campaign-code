@@ -24,8 +24,14 @@ const normalizedTheme = computed<'light' | 'dark'>(() => {
 
 const outerThemeClass = computed(() =>
   normalizedTheme.value === 'light'
-    ? 'bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 text-slate-900'
-    : 'bg-gradient-to-br from-[#020617] via-[#050c21] to-[#020617] text-white',
+    ? 'bg-white text-slate-900'
+    : 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white',
+)
+
+const innerContainerClass = computed(() =>
+  normalizedTheme.value === 'light'
+    ? 'rounded-[32px] bg-white/80 shadow-[0_20px_50px_rgba(2,10,33,0.45)] backdrop-blur p-6 md:p-10'
+    : 'rounded-[32px] bg-slate-900/90 shadow-[0_20px_50px_rgba(2,10,33,0.6)] backdrop-blur p-6 md:p-10',
 )
 
 const handleFormSubmit = (values: Record<string, string>) => {
@@ -67,13 +73,8 @@ onMounted(() => {
 
   <div :class="[outerThemeClass, 'flex flex-col min-h-screen items-center justify-center px-4 py-10']">
     <div class="w-full max-w-6xl">
-      <div
-        :class="[
-          'rounded-[32px] bg-white/80 shadow-[0_20px_50px_rgba(2,10,33,0.45)] backdrop-blur p-6 md:p-10',
-          normalizedTheme.value === 'light' ? 'bg-gradient-to-b from-white to-slate-100' : '',
-        ]"
-      >
-        <div class="flex flex-col items-stretch gap-8 md:flex-row">
+      <div :class="[innerContainerClass]">
+        <div class="flex flex-col items-center justify-center gap-8 md:flex-row">
         <div class="flex-1">
           <WheelCard
             :campaign="campaign"
