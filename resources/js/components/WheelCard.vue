@@ -300,3 +300,69 @@ onMounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+
+.pointer {
+  position: absolute;
+  left: var(--pointer-left, 50%);
+  top: var(--pointer-top, -2%);
+  transform: translate(-50%, -50%) rotate(var(--pointer-rotate, 0deg));
+  filter: drop-shadow(0 8px 8px rgba(15, 23, 42, 0.8));
+  --pointer-color: #fbbf24;
+  transition: transform 0.2s ease, left 0.2s ease, top 0.2s ease;
+}
+
+.pointer.triangle {
+  width: 36px;
+  height: 32px;
+  background: var(--pointer-color);
+  clip-path: polygon(50% 100%, 100% 0, 0 0);
+}
+
+.pointer.arrow {
+  width: 44px;
+  height: 46px;
+  background: var(--pointer-color);
+  clip-path: polygon(50% 100%, 100% 40%, 70% 40%, 70% 0, 30% 0, 30% 40%, 0 40%);
+  border: none;
+}
+
+.pointer.diamond {
+  width: 30px;
+  height: 30px;
+  background: var(--pointer-color);
+  transform: translate(-50%, -50%) rotate(calc(45deg + var(--pointer-rotate, 0deg)));
+  border-radius: 4px;
+  top: var(--pointer-top, -2%);
+  left: var(--pointer-left, 50%);
+}
+
+.pointer.kite {
+  width: 44px;
+  height: 52px;
+  background: var(--pointer-color);
+  clip-path: polygon(50% 100%, 85% 50%, 50% 0, 15% 50%);
+}
+
+.pointer.shield {
+  width: 46px;
+  height: 52px;
+  background: var(--pointer-color);
+  clip-path: polygon(50% 100%, 100% 75%, 80% 0, 20% 0, 0 75%);
+}
+
+.pointer.tag {
+  width: 46px;
+  height: 52px;
+  background: var(--pointer-color);
+  clip-path: polygon(0 30%, 40% 30%, 40% 0, 60% 0, 60% 30%, 100% 30%, 100% 100%, 0 100%);
+}
+
+.pointer.chevron {
+  width: 44px;
+  height: 52px;
+  background: var(--pointer-color);
+  clip-path: polygon(50% 100%, 100% 62%, 70% 62%, 70% 0, 30% 0, 30% 62%, 0 62%);
+}
+</style>
