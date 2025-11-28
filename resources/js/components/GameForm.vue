@@ -8,7 +8,7 @@ const props = defineProps<{
 }>()
 
 const emits = defineEmits<{
-  (event: 'submit', payload: Record<string, any>): void
+  (event: 'submit', payload: Record<string, string>): void
 }>()
 
 const formState = reactive<Record<string, any>>({})
@@ -115,7 +115,19 @@ const alignClass = computed(() => {
 
 const handleSubmit = () => {
   submitting.value = true
-  emits('submit', { ...formState })
+  // normalize values: booleans -> '1'|'0', others -> string
+  const payload: Record<string, string> = {}
+  Object.entries(formState).forEach(([key, value]) => {
+    if (typeof value === 'boolean') {
+      payload[key] = value ? '1' : '0'
+    } else if (value === null || value === undefined) {
+      payload[key] = ''
+    } else {
+      payload[key] = String(value)
+    }
+  })
+
+  emits('submit', payload)
   formMessage.value = '¡Todo listo para registrar tu participación!'
   submitting.value = false
 }

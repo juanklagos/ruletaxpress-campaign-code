@@ -8,9 +8,9 @@ import type {
   WinwheelPins,
   WinwheelSegment,
 } from '@/types/winwheel-types'
-import type { WheelConfig } from '@/types/wheel-config'
+// wheel-config types intentionally not imported here to avoid strict coupling
 import type { CampaignData } from '@/types/campaign'
-import { computed, defineProps, onMounted, ref, watch } from 'vue'
+import { computed, defineProps, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { defaultWheelConfig } from '@/types/wheel-config'
 
 const props = defineProps<{
@@ -22,18 +22,40 @@ const props = defineProps<{
   formReady?: boolean
 }>()
 
-const pointerPlacement: Record<string, { left: string; top: string; rot: string }> = {
-  top: { left: '50%', top: '-1%', rot: '0deg' },
-  'top-right': { left: '90%', top: '6%', rot: '45deg' },
-  right: { left: '101%', top: '50%', rot: '90deg' },
-  'bottom-right': { left: '90%', top: '90%', rot: '135deg' },
-  bottom: { left: '50%', top: '101%', rot: '180deg' },
-  'bottom-left': { left: '10%', top: '90%', rot: '225deg' },
-  left: { left: '-1%', top: '50%', rot: '270deg' },
-  'top-left': { left: '10%', top: '6%', rot: '315deg' },
-}
+type PointerStyle = 'triangle' | 'arrow' | 'diamond' | 'kite' | 'shield' | 'tag' | 'chevron'
+type PointerPosition =
+  | 'top'
+  | 'top-right'
+  | 'right'
+  | 'bottom-right'
+  | 'bottom'
+  | 'bottom-left'
+  | 'left'
+  | 'top-left'
+type WheelPosition = 'center' | 'left' | 'right' | 'top' | 'bottom'
+type ButtonPosition = 'center' | 'outside'
 
-const pointerAngles: Record<string, number> = {
+
+const canvasId = 'wheel-canvas'
+const canvasRef = ref<HTMLCanvasElement | null>(null)
+const wheel = ref<WinwheelInstance | null>(null)
+const isSpinning = ref(false)
+
+// UI / pointer / button defaults (fall back to campaign config when present)
+const pointerPosition = ref<PointerPosition>('top')
+const pointerStyle = ref<PointerStyle>('triangle')
+const pointerColor = ref('#fbbf24')
+const pointerOnButton = ref(false)
+const buttonPosition = ref<ButtonPosition>('center')
+const buttonSize = ref(130)
+const pointerEl = ref<HTMLElement | null>(null)
+const spinButtonRef = ref<HTMLButtonElement | null>(null)
+
+const isReady = computed(() => Boolean(props.formReady))
+
+const wheelPlacementStyle = computed(() => ({ justifySelf: 'center', alignSelf: 'center' }))
+
+const pointerAngles: Record<PointerPosition, number> = {
   top: 0,
   'top-right': 45,
   right: 90,
@@ -44,182 +66,199 @@ const pointerAngles: Record<string, number> = {
   'top-left': 315,
 }
 
-const canvasRef = ref<HTMLCanvasElement | null>(null)
-const wheelInstance = ref<WinwheelInstance | null>(null)
-const isSpinning = ref(false)
+const pointerPlacement: Record<
+  PointerPosition,
+  { left: string; top: string; rot: string }
+> = {
+  top: { left: '50%', top: '-2%', rot: '0deg' },
+  'top-right': { left: '90%', top: '8%', rot: '45deg' },
+  right: { left: '101%', top: '50%', rot: '90deg' },
+  'bottom-right': { left: '90%', top: '92%', rot: '135deg' },
+  bottom: { left: '50%', top: '101%', rot: '180deg' },
+  'bottom-left': { left: '10%', top: '92%', rot: '225deg' },
+  left: { left: '-1%', top: '50%', rot: '270deg' },
+  'top-left': { left: '10%', top: '8%', rot: '315deg' },
+}
+
+const wheelPlacement = {
+  center: { justifySelf: 'center', alignSelf: 'center' },
+  left: { justifySelf: 'start', alignSelf: 'center' },
+  right: { justifySelf: 'end', alignSelf: 'center' },
+  top: { justifySelf: 'center', alignSelf: 'start' },
+  bottom: { justifySelf: 'center', alignSelf: 'end' },
+}
+
+const templateOptions = [
+  { value: 'vibrante', label: 'Vibrante de 8' },
+  { value: 'donut', label: 'Donut minimal' },
+  { value: 'gourmet', label: 'Gourmet' },
+  { value: 'monocroma', label: 'Monocroma' },
+  { value: 'festiva', label: 'Festiva con pins' },
+  { value: 'temus', label: 'Temus (cupones)' },
+]
+
+const pointerOptions: { value: PointerStyle; label: string }[] = [
+  { value: 'triangle', label: 'Triángulo' },
+  { value: 'arrow', label: 'Flecha' },
+  { value: 'diamond', label: 'Rombo' },
+  { value: 'kite', label: 'Cometa' },
+  { value: 'shield', label: 'Escudo' },
+  { value: 'tag', label: 'Etiqueta' },
+  { value: 'chevron', label: 'Chevron' },
+]
+
+const pointerPositionOptions: { value: PointerPosition; label: string }[] = [
+  { value: 'top', label: 'Arriba' },
+  { value: 'top-right', label: 'Arriba derecha' },
+  { value: 'right', label: 'Derecha' },
+  { value: 'bottom-right', label: 'Abajo derecha' },
+  { value: 'bottom', label: 'Abajo' },
+  { value: 'bottom-left', label: 'Abajo izquierda' },
+  { value: 'left', label: 'Izquierda' },
+  { value: 'top-left', label: 'Arriba izquierda' },
+]
+
+const wheelPositionOptions: { value: WheelPosition; label: string }[] = [
+  { value: 'center', label: 'Centro' },
+  { value: 'left', label: 'Izquierda' },
+  { value: 'right', label: 'Derecha' },
+  { value: 'top', label: 'Arriba' },
+  { value: 'bottom', label: 'Abajo' },
+]
+
+const spinPositionOptions: { value: ButtonPosition; label: string }[] = [
+  { value: 'center', label: 'Centro (dentro)' },
+  { value: 'outside', label: 'Exterior (debajo)' },
+]
+
+// audio options not required in this card component
+
+const pointerVars = computed(() => {
+  const pos = pointerPlacement[pointerPosition.value]
+  return {
+    '--pointer-left': pos.left,
+    '--pointer-top': pos.top,
+    '--pointer-rotate': pos.rot,
+    '--pointer-color': pointerColor.value,
+  }
+})
+
+const spinButtonStyle = computed(() => ({
+  '--btn-size': `${buttonSize.value}px`,
+  '--pointer-color': pointerColor.value,
+}))
+
+const spinButtonClasses = computed(() => ({
+  'spin-button--outside': buttonPosition.value === 'outside',
+  'spin-button--with-pointer': pointerOnButton.value,
+}))
+
+const campaignConfig = computed(() => {
+  return (props.campaign as any)?.campaign_game?.config ?? null
+})
 
 const campaignSegments = computed<WinwheelSegment[]>(() => {
-  const raw = props.campaign?.campaign_game?.config.segments
-  if (!raw?.length) {
+  const raw = campaignConfig.value?.segments
+  if (!raw || !raw.length) {
     return defaultWheelConfig.segments
   }
-
-  return raw.map((segment, index) => ({
-    fillStyle:
-      segment.fillStyle ?? defaultWheelConfig.segments[index % defaultWheelConfig.segments.length].fillStyle,
-    strokeStyle: segment.strokeStyle ?? '#111827',
-    lineWidth: segment.lineWidth ?? 2,
-    text: segment.text ?? segment.label ?? segment.cupon ?? `Premio ${index + 1}`,
+  return raw.map((s: any, i: number) => ({
+    fillStyle: s.fillStyle ?? defaultWheelConfig.segments[i % defaultWheelConfig.segments.length].fillStyle,
+    strokeStyle: s.strokeStyle ?? '#111827',
+    lineWidth: s.lineWidth ?? 1,
+    text: s.text ?? s.label ?? s.cupon ?? `Premio ${i + 1}`,
   }))
 })
 
-const campaignConfig = computed<WheelConfig>(() => {
-  const config = props.campaign?.campaign_game?.config
-  return {
-    ...defaultWheelConfig,
-    wheel: {
-      ...defaultWheelConfig.wheel,
-      outerRadius: config?.outerRadius ?? defaultWheelConfig.wheel.outerRadius,
-      innerRadius: config?.innerRadius ?? defaultWheelConfig.wheel.innerRadius,
-      strokeStyle: config?.strokeStyle ?? defaultWheelConfig.wheel.strokeStyle,
-      lineWidth: config?.lineWidth ?? defaultWheelConfig.wheel.lineWidth,
-      animation: {
-        ...defaultWheelConfig.wheel.animation,
-        ...(config?.animation ?? {}),
-      },
-      pointerAngle: config?.pointerAngle ?? defaultWheelConfig.wheel.pointerAngle,
-    },
-    segments: campaignSegments.value,
-    pointer: {
-      color: config?.pointer?.color ?? defaultWheelConfig.pointer?.color,
-      position: config?.pointer?.position ?? defaultWheelConfig.pointer?.position,
-    },
-    button: defaultWheelConfig.button,
-    layout: defaultWheelConfig.layout,
-    audio: defaultWheelConfig.audio,
-  }
-})
-
-const pointerColor = computed(() => campaignConfig.value.pointer?.color ?? '#fbbf24')
-
-const currentPointer = computed(() => ({
-  integratedOnButton: campaignConfig.value.pointer?.integratedOnButton ?? false,
-  position: campaignConfig.value.pointer?.position ?? 'top',
-}))
-
-const pointerStyle = computed(() => {
-  const placement = pointerPlacement[currentPointer.value.position || 'top'] ?? pointerPlacement.top
-  return {
-    left: placement.left,
-    top: placement.top,
-    transform: `translate(-50%, -50%) rotate(${placement.rot})`,
-    background: pointerColor.value,
-  }
-})
-
-const spinButtonStyle = computed(() => {
-  const baseSize = campaignConfig.value.button?.size ?? 140
-  if (campaignConfig.value.button?.position === 'outside') {
-    return {
-      width: `${baseSize + 40}px`,
-      height: '56px',
-      top: '108%',
-      left: '50%',
-      transform: 'translate(-50%, 0)',
-    }
-  }
-
-  return {
-    width: `${baseSize}px`,
-    height: `${baseSize}px`,
-  }
-})
-
-const spinButtonClass = computed(() => {
-  const base =
-    'absolute grid place-items-center bg-[radial-gradient(circle,#facc15,#f97316)] text-slate-900 font-extrabold uppercase tracking-[0.06em] text-lg shadow-[0_0_0_4px_rgba(15,23,42,0.9),0_24px_48px_rgba(0,0,0,0.9)] transition duration-100 ease-linear select-none border-none focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed'
-  const inside =
-    'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transform rounded-full hover:scale-[1.015]'
-  const outside =
-    'top-[108%] left-1/2 -translate-x-1/2 transform rounded-xl shadow-[0_12px_24px_rgba(0,0,0,0.45),0_0_0_2px_rgba(15,23,42,0.9)] text-base'
-
-  return `${base} ${
-    campaignConfig.value.button?.position === 'outside' ? outside : inside
-  }`
-})
-
-const animationOptions = computed<WinwheelAnimation>(() => {
-  const animation = campaignConfig.value.wheel.animation
-  const opts: WinwheelAnimation = {
-    type: animation?.type ?? 'spinToStop',
-    duration: animation?.duration ?? 6,
-    spins: animation?.spins ?? 8,
-    easing: animation?.easing ?? 'Power4.easeOut',
-    callbackFinished: () => {
-      isSpinning.value = false
-    },
-  }
-
-  if (animation?.direction) {
-    opts.direction = animation.direction as string
-  }
-
-  return opts
-})
+const applyPointerAngle = () => {
+  if (!wheel.value) return
+  wheel.value.pointerAngle = (campaignConfig.value?.pointerAngle ?? 0) || 0
+  wheel.value.draw()
+}
 
 const buildWheel = () => {
-  const canvas = canvasRef.value
-  if (!canvas) {
-    return
+  const cfg: any = campaignConfig.value
+  if (!cfg) return
+
+  if (wheel.value) {
+    isSpinning.value = false
+    try {
+      wheel.value.stopAnimation(false)
+    } catch {}
   }
 
-  wheelInstance.value?.stopAnimation(true)
+  const pinsFromConfig: WinwheelPins | undefined = cfg.pins
+    ? {
+        number: cfg.pins.number,
+        outerRadius: cfg.pins.outerRadius,
+        margin: cfg.pins.margin,
+        fillStyle: cfg.pins.fillStyle,
+        strokeStyle: cfg.pins.strokeStyle,
+        lineWidth: cfg.pins.lineWidth ?? 1,
+      }
+    : undefined
 
-  const pins: WinwheelPins | null =
-    campaignConfig.value.audio?.pins && campaignConfig.value.audio.pins > 0
-      ? {
-          number: campaignConfig.value.audio.pins,
-          outerRadius: 5,
-          margin: 8,
-          fillStyle: '#f8fafc',
-          strokeStyle: '#0f172a',
-          lineWidth: 1,
-        }
-      : null
+  const animation = cfg.animation || {}
 
   const options: WinwheelOptions = {
-    canvasId: 'wheelCanvas',
-    canvasElement: canvas,
-    numSegments: campaignConfig.value.segments.length,
-    outerRadius: campaignConfig.value.wheel.outerRadius ?? 240,
-    innerRadius: campaignConfig.value.wheel.innerRadius ?? 60,
-    textFontSize: campaignConfig.value.wheel.textFontSize ?? 16,
-    textAlignment: campaignConfig.value.wheel.textAlignment ?? 'outer',
-    textFillStyle: campaignConfig.value.wheel.textFillStyle ?? '#0f172a',
-    strokeStyle: campaignConfig.value.wheel.strokeStyle ?? '#111827',
-    lineWidth: campaignConfig.value.wheel.lineWidth ?? 2,
-    animation: animationOptions.value,
-    segments: campaignConfig.value.segments,
-    pins: pins ?? undefined,
-    clearTheCanvas: campaignConfig.value.wheel.clearTheCanvas ?? true,
+    canvasId: cfg.canvasId ?? canvasId,
+    canvasElement: canvasRef.value ?? undefined,
+    numSegments: cfg.numSegments ?? campaignSegments.value.length,
+    outerRadius: cfg.outerRadius ?? defaultWheelConfig.wheel.outerRadius,
+    innerRadius: cfg.innerRadius ?? defaultWheelConfig.wheel.innerRadius,
+    textFontSize: cfg.textFontSize ?? defaultWheelConfig.wheel.textFontSize,
+    textAlignment: cfg.textAlignment ?? defaultWheelConfig.wheel.textAlignment ?? 'outer',
+    textFillStyle: cfg.textFillStyle ?? defaultWheelConfig.wheel.textFillStyle,
+    strokeStyle: cfg.strokeStyle ?? defaultWheelConfig.wheel.strokeStyle,
+    lineWidth: cfg.lineWidth ?? defaultWheelConfig.wheel.lineWidth,
+    animation: {
+      type: animation.type ?? 'spinToStop',
+      duration: animation.duration ?? 6,
+      spins: animation.spins ?? 8,
+      easing: animation.easing ?? 'Power4.easeOut',
+      direction: animation.direction ?? undefined,
+      stopAngle: animation.stopAngle ?? undefined,
+      callbackFinished: () => {
+        isSpinning.value = false
+      },
+      callbackSound: null,
+      soundTrigger: animation.soundTrigger ?? undefined,
+    },
+    segments: campaignSegments.value,
+    pins: pinsFromConfig ?? undefined,
+    clearTheCanvas: cfg.clearTheCanvas ?? true,
   }
 
   const WinwheelCtor = Winwheel as unknown as WinwheelConstructor
-  wheelInstance.value = new WinwheelCtor(options)
-  wheelInstance.value.pointerAngle =
-    campaignConfig.value.wheel.pointerAngle ??
-    pointerAngles[campaignConfig.value.pointer?.position || 'top'] ??
-    0
-  wheelInstance.value.draw()
+  wheel.value = new WinwheelCtor(options)
+  applyPointerAngle()
 }
 
-const isReady = computed(() => !!props.formReady)
-
 const handleSpin = () => {
-  if (!isReady.value || isSpinning.value || !wheelInstance.value) {
-    return
-  }
-
+  if (!isReady.value || isSpinning.value || !wheel.value) return
   isSpinning.value = true
-  wheelInstance.value.startAnimation()
+  try {
+    wheel.value.startAnimation()
+  } catch {
+    isSpinning.value = false
+  }
 }
 
 watch(
   () => props.campaign,
   () => {
+    // update local UI values from campaign config when available
+    const cfg = campaignConfig.value
+    if (cfg) {
+      pointerPosition.value = (cfg.pointer?.position as PointerPosition) ?? 'top'
+      pointerColor.value = cfg.pointer?.color ?? pointerColor.value
+      pointerOnButton.value = cfg.pointer?.integratedOnButton ?? false
+      buttonPosition.value = (cfg.button?.position as ButtonPosition) ?? 'center'
+      buttonSize.value = cfg.button?.size ?? buttonSize.value
+    }
     buildWheel()
   },
-  { deep: true, flush: 'post' },
+  { immediate: true, deep: true },
 )
 
 watch(
@@ -232,76 +271,97 @@ watch(
 onMounted(() => {
   buildWheel()
 })
-</script>
 
+onBeforeUnmount(() => {
+  if (wheel.value) {
+    try {
+      wheel.value.stopAnimation(false)
+    } catch {}
+  }
+})
+
+
+
+</script>
 <template>
-  <div class="grid w-full justify-items-center gap-3 lg:justify-items-start">
-    <div
-      class="relative mx-auto flex aspect-square min-h-[320px] w-full max-w-[520px] items-center justify-center lg:min-h-0"
-      :style="{ justifySelf: 'center', alignSelf: 'center' }"
-    >
+ <div class="wheel-wrapper" :style="wheelPlacementStyle">
       <div
-        v-if="props.title"
-        class="absolute top-2 text-xs font-semibold uppercase tracking-[0.4em] text-white/70"
-      >
-        {{ props.title }}
-      </div>
-      <div
-        v-show="!currentPointer.integratedOnButton"
-        class="absolute h-8 w-9 origin-center rounded-[4px] drop-shadow-[0_8px_8px_rgba(15,23,42,0.8)] transition-all duration-200"
-        :style="pointerStyle"
+        v-show="!pointerOnButton"
+        ref="pointerEl"
+        class="pointer"
+        :class="pointerStyle"
+        :style="pointerVars"
       />
-      <canvas
-        ref="canvasRef"
-        id="wheelCanvas"
-        width="520"
-        height="520"
-        class="h-full w-full max-w-full rounded-full bg-[radial-gradient(circle,#020617_0%,#0b1120_60%,#020617_100%)] shadow-[0_0_0_6px_rgba(148,163,184,0.45),0_20px_60px_rgba(0,0,0,0.8)]"
-      />
+      <canvas ref="canvasRef" :id="canvasId" width="420" height="420" class="wheel-canvas" />
       <button
+        ref="spinButtonRef"
         type="button"
-        class="cursor-pointer"
-        :class="spinButtonClass"
+        class="spin-button"
+        :class="spinButtonClasses"
         :style="spinButtonStyle"
-        :disabled="isSpinning || !isReady"
         @click="handleSpin"
       >
-        <span
-        v-if="currentPointer.integratedOnButton"
-          class="absolute -top-4 left-1/2 block h-5 w-6 -translate-x-1/2 drop-shadow-[0_6px_6px_rgba(15,23,42,0.45)] transition-all duration-200"
-          :style="{ clipPath: 'polygon(50% 100%, 100% 0, 0 0)', background: pointerColor }"
-        />
-        {{ isSpinning ? 'Girando' : 'Girar' }}
+        Girar
       </button>
-      <div
-        v-if="props.loading"
-        :class="[
-          'absolute inset-0 grid place-items-center rounded-full text-xs font-semibold uppercase tracking-[0.5em]',
-          props.theme === 'light' ? 'bg-white/70 text-slate-800' : 'bg-black/50 text-white/70',
-        ]"
-      >
-        Cargando configuración…
-      </div>
-      <div
-        v-else-if="props.error"
-        :class="[
-          'absolute inset-0 grid place-items-center rounded-full text-xs font-semibold uppercase tracking-[0.4em]',
-          props.theme === 'light' ? 'bg-white/85 text-red-600' : 'bg-black/60 text-red-200',
-        ]"
-      >
-        {{ props.error }}
-      </div>
-      <div
-        v-if="!isReady"
-        class="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-4 py-2 text-xs font-semibold text-white"
-      >
-        Completa el formulario para girar
-      </div>
     </div>
-  </div>
 </template>
 
 <style scoped>
+.builder-grid {
+  display: grid;
+  grid-template-columns: 360px 1fr 340px;
+  gap: 24px;
+  align-items: flex-start;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 32px;
+}
+
+.panel {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  padding: 20px 20px 24px;
+}
+
+.panel-wide {
+  grid-column: 1 / -1;
+  max-width: 1220px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.panel h1 {
+  margin: 0;
+}
+
+.panel .note {
+  font-size: 13px;
+  color: #c4d0e1;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(148, 163, 184, 0.5);
+  border-radius: 12px;
+  padding: 12px;
+  line-height: 1.5;
+}
+
+.wheel-wrapper {
+  position: relative;
+  width: 480px;
+  height: 480px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wheel-canvas {
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 10px rgba(148, 163, 184, 0.5),
+    0 28px 72px rgba(0, 0, 0, 0.9);
+  background: radial-gradient(circle, #020617 0%, #0b1120 60%, #020617 100%);
+}
 
 .pointer {
   position: absolute;
@@ -364,5 +424,94 @@ onMounted(() => {
   height: 52px;
   background: var(--pointer-color);
   clip-path: polygon(50% 100%, 100% 62%, 70% 62%, 70% 0, 30% 0, 30% 62%, 0 62%);
+}
+
+.spin-button {
+  position: absolute;
+  width: var(--btn-size, 130px);
+  height: var(--btn-size, 130px);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: radial-gradient(circle, #facc15, #f97316);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #111827;
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  box-shadow:
+    0 0 0 4px rgba(15, 23, 42, 0.9),
+    0 24px 48px rgba(0, 0, 0, 0.9);
+  text-transform: uppercase;
+  user-select: none;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, top 0.2s ease, left 0.2s ease;
+  --pointer-color: #fbbf24;
+  border: none;
+}
+
+.spin-button--with-pointer::after {
+  content: '';
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 12px solid transparent;
+  border-right: 12px solid transparent;
+  border-bottom: 18px solid var(--pointer-color);
+  filter: drop-shadow(0 6px 6px rgba(15, 23, 42, 0.45));
+}
+
+.spin-button--outside {
+  top: 108%;
+  left: 50%;
+  transform: translate(-50%, 0);
+  width: 170px;
+  height: 54px;
+  border-radius: 12px;
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.45),
+    0 0 0 2px rgba(15, 23, 42, 0.9);
+}
+
+.spin-button:active {
+  transform: translate(-50%, -50%) scale(0.98);
+  box-shadow:
+    0 0 0 2px rgba(15, 23, 42, 1),
+    0 14px 26px rgba(0, 0, 0, 0.8);
+}
+
+@media (max-width: 980px) {
+  .builder-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    justify-items: center;
+    padding: 20px;
+  }
+
+  .panel {
+    width: 100%;
+    max-width: 520px;
+  }
+
+  .wheel-wrapper {
+    order: 2;
+  }
+
+  #segmentBuilder {
+    order: 3;
+    width: 100%;
+    max-width: 520px;
+  }
+
+  .panel-wide {
+    grid-column: 1;
+    width: 100%;
+  }
 }
 </style>
