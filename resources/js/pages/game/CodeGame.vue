@@ -1,146 +1,218 @@
 <script setup lang="ts">
-import axios from 'axios';
-import { Head } from '@inertiajs/vue3';
-import { onMounted, ref, toRef } from 'vue';
+import axios from 'axios'
+import { Head } from '@inertiajs/vue3'
+import { computed, onMounted, ref } from 'vue'
+import WheelCard from '@/components/WheelCard.vue'
+import GameForm from '@/components/GameForm.vue'
+import type { WinwheelSegment } from '@/types/winwheel-types'
+import { defaultWheelConfig, type WheelConfig } from '@/types/wheel-config'
 
-const props = defineProps<{
-    code: string;
-}>();
+type FormField = {
+  type: string
+  data: {
+    label?: string
+    key: string
+    placeholder?: string
+    required?: boolean
+    helper?: string
+  }
+}
 
-const code = toRef(props, 'code');
-const copied = ref(false);
-const loading = ref(true);
-const error = ref<string | null>(null);
-const campaign = ref<Record<string, unknown> | null>(null);
+type CampaignGame = {
+  name: string
+  config: {
+    form_theme?: string
+    cta_button?: {
+      label?: string
+    }
+    form?: Record<string, FormField>
+    segments?: Array<{
+      fillStyle?: string
+      text?: string
+      strokeStyle?: string
+      lineWidth?: number
+      label?: string
+      cupon?: string
+    }>
+    animation?: Record<string, number | string>
+    outerRadius?: number
+    innerRadius?: number
+    pointerAngle?: number
+    pointer?: {
+      position?: WheelConfig['pointer']['position']
+      color?: string
+    }
+    lineWidth?: number
+    strokeStyle?: string
+  }
+}
 
-const copyCode = async (): Promise<void> => {
-    await navigator.clipboard.writeText(code.value);
-    copied.value = true;
-    window.setTimeout(() => {
-        copied.value = false;
-    }, 1500);
-};
+type CampaignData = {
+  code: string
+  campaign_game: CampaignGame | null
+}
+
+type CampaignApiResponse = {
+  status: 'success' | 'error'
+  data: CampaignData | null
+  message?: string
+}
+
+const props = defineProps<{ code: string }>()
+
+const code = ref(props.code)
+const loading = ref(true)
+const error = ref<string | null>(null)
+const campaign = ref<CampaignData | null>(null)
+const submitting = ref(false)
+const formMessage = ref<string | null>(null)
+
+const formFields = computed(() => {
+  const form = campaign.value?.campaign_game?.config.form
+  if (!form) {
+    return []
+  }
+
+  return Object.entries(form).map(([key, field]) => ({
+    key,
+    label: field.data.label ?? field.data.key ?? 'Campo sin nombre',
+    type: field.data.type ?? field.type,
+    placeholder: field.data.placeholder,
+    required: Boolean(field.data.required),
+    helper: field.data.helper,
+  }))
+})
+
+const ctaButtonLabel = computed(() => campaign.value?.campaign_game?.config.cta_button?.label ?? 'Spin it')
+
+const normalizedTheme = computed<'light' | 'dark'>(() => {
+  const raw = campaign.value?.campaign_game?.config.form_theme
+  if (!raw) {
+    return 'dark'
+  }
+  return raw.toLowerCase() === 'light' ? 'light' : 'dark'
+})
+
+const outerThemeClass = computed(() =>
+  normalizedTheme.value === 'light'
+    ? 'bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 text-slate-900'
+    : 'bg-gradient-to-br from-[#020617] via-[#050c21] to-[#020617] text-white',
+)
+
+const wheelConfig = computed<WheelConfig>(() => {
+  const config = campaign.value?.campaign_game?.config
+  const segments = (config?.segments && config.segments.length
+    ? config.segments.map((segment, index) => ({
+        fillStyle:
+          segment.fillStyle ??
+          defaultWheelConfig.segments[index % defaultWheelConfig.segments.length].fillStyle,
+        strokeStyle: segment.strokeStyle ?? '#111827',
+        lineWidth: segment.lineWidth ?? 2,
+        text: segment.text ?? segment.label ?? segment.cupon ?? `Premio ${index + 1}`,
+      }))
+    : defaultWheelConfig.segments) as WinwheelSegment[]
+
+  return {
+    ...defaultWheelConfig,
+    wheel: {
+      ...defaultWheelConfig.wheel,
+      outerRadius: config?.outerRadius ?? defaultWheelConfig.wheel.outerRadius,
+      innerRadius: config?.innerRadius ?? defaultWheelConfig.wheel.innerRadius,
+      strokeStyle: config?.strokeStyle ?? defaultWheelConfig.wheel.strokeStyle,
+      lineWidth: config?.lineWidth ?? defaultWheelConfig.wheel.lineWidth,
+      animation: {
+        ...defaultWheelConfig.wheel.animation,
+        ...(config?.animation ?? {}),
+      },
+      pointerAngle: config?.pointerAngle ?? defaultWheelConfig.wheel.pointerAngle,
+    },
+    segments,
+    pointer: {
+      color: config?.pointer?.color ?? defaultWheelConfig.pointer?.color,
+      position: config?.pointer?.position ?? defaultWheelConfig.pointer?.position,
+    },
+    button: defaultWheelConfig.button,
+    layout: defaultWheelConfig.layout,
+    audio: defaultWheelConfig.audio,
+  }
+})
+
+const handleFormSubmit = async (): Promise<void> => {
+  if (!formFields.value.length) {
+    formMessage.value = 'No hay campos configurados para este juego.'
+    return
+  }
+
+  submitting.value = true
+  formMessage.value = null
+  await new Promise((resolve) => window.setTimeout(resolve, 600))
+  formMessage.value = '¡Todo listo para registrar tu participación!'
+  submitting.value = false
+}
 
 const fetchCampaign = async (): Promise<void> => {
-    loading.value = true;
-    error.value = null;
-    campaign.value = null;
+  loading.value = true
+  error.value = null
+  campaign.value = null
 
-    try {
-        const response = await axios.get(
-            `https://ruletaxpress.pro/api/campaigns/code/${encodeURIComponent(code.value)}`,
-        );
+  try {
+    const response = await axios.get<CampaignApiResponse>(
+      `https://ruletaxpress.pro/api/campaigns/code/${encodeURIComponent(code.value)}`,
+    )
 
-        campaign.value = response.data as Record<string, unknown>;
-    } catch (err) {
-        error.value = axios.isAxiosError(err)
-            ? (err.response?.data as { message?: string })?.message ??
-                err.message
-            : 'No se pudo obtener la campaña. Intenta nuevamente.';
-    } finally {
-        loading.value = false;
+    if (response.data.status !== 'success' || !response.data.data) {
+      throw new Error(response.data.message ?? 'No se encontró una campaña válida.')
     }
-};
+
+    campaign.value = response.data.data
+  } catch (err) {
+    error.value = axios.isAxiosError(err)
+      ? (err.response?.data as { message?: string })?.message ?? err.message
+      : 'No se pudo obtener la campaña. Intenta nuevamente.'
+  } finally {
+    loading.value = false
+  }
+}
 
 onMounted(() => {
-    void fetchCampaign();
-});
+  void fetchCampaign()
+})
 </script>
 
 <template>
-    <Head title="Código de juego" />
+  <Head title="Código de juego" />
 
-    <div
-        class="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#0d1b2a] via-[#0b1320] to-[#0f172a] px-6 py-10 text-white"
-    >
-        <div
-            class="w-full max-w-xl rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur shadow-[0_20px_60px_rgba(0,0,0,0.35)]"
-        >
-            <p
-                class="mb-2 text-xs font-semibold uppercase tracking-[0.3em] text-white/60"
-            >
-                Código recibido
-            </p>
-            <h1 class="text-3xl font-semibold leading-tight">
-                Prepara tu juego
-            </h1>
-            <p class="mt-2 text-base text-white/70">
-                Usa este código para iniciar la partida y compartirlo con tu
-                equipo.
-            </p>
-
-            <div
-                class="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 px-5 py-4"
-            >
-                <span class="text-2xl font-mono tracking-wide text-white">
-                    {{ code }}
-                </span>
-                <button
-                    type="button"
-                    class="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.2)] transition-all duration-200 hover:shadow-[0_12px_34px_rgba(0,0,0,0.25)] disabled:cursor-not-allowed disabled:opacity-70"
-                    :disabled="copied"
-                    @click="copyCode"
-                >
-                    {{ copied ? 'Copiado' : 'Copiar' }}
-                </button>
-            </div>
-
-            <div
-                class="mt-6 rounded-2xl border border-white/10 bg-black/20 p-5"
-            >
-                <div class="flex items-center justify-between gap-3">
-                    <div>
-                        <p class="text-sm font-semibold text-white/80">
-                            Detalles de la campaña
-                        </p>
-                        <p class="text-xs text-white/60">
-                            Consultando el código en la API externa.
-                        </p>
-                    </div>
-                    <button
-                        type="button"
-                        class="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:border-white/30 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
-                        :disabled="loading"
-                        @click="fetchCampaign"
-                    >
-                        {{ loading ? 'Actualizando…' : 'Reintentar' }}
-                    </button>
-                </div>
-
-                <div class="mt-4 min-h-[120px] rounded-xl bg-black/30 p-4">
-                    <template v-if="loading">
-                        <p class="text-sm text-white/70">Consultando campaña…</p>
-                    </template>
-                    <template v-else-if="error">
-                        <p class="text-sm text-red-200">
-                            {{ error }}
-                        </p>
-                    </template>
-                    <template v-else-if="campaign">
-                        <pre
-                            class="whitespace-pre-wrap text-sm text-white/90"
-                        >{{ campaign }}</pre>
-                    </template>
-                    <template v-else>
-                        <p class="text-sm text-white/70">
-                            No hay datos disponibles para este código todavía.
-                        </p>
-                    </template>
-                </div>
-            </div>
-
-            <div class="mt-6 grid gap-2 text-sm text-white/70">
-                <p>
-                    Si el código no coincide, solicita uno nuevo desde el panel
-                    de control.
-                </p>
-                <p class="text-white/50">
-                    Ruta:
-                    <span class="font-mono text-white/80">
-                        /view/code/{{ code }}/game
-                    </span>
-                </p>
-            </div>
+  <div :class="[outerThemeClass, 'flex min-h-screen items-center justify-center px-4 py-10']">
+    <div class="w-full max-w-6xl">
+      <div
+        :class="[
+          'rounded-[32px] bg-white/80 shadow-[0_20px_50px_rgba(2,10,33,0.45)] backdrop-blur p-6 md:p-10',
+          normalizedTheme.value === 'light' ? 'bg-gradient-to-b from-white to-slate-100' : '',
+        ]"
+      >
+        <div class="flex flex-col items-stretch gap-8 md:flex-row">
+          <div class="flex-1">
+            <WheelCard
+              :config="wheelConfig"
+              :title="campaign?.campaign_game?.name"
+              :loading="loading"
+              :error="error"
+              :theme="normalizedTheme"
+            />
+          </div>
+          <div class="flex-1">
+            <GameForm
+              :fields="formFields"
+              :cta-label="ctaButtonLabel"
+              :theme="normalizedTheme"
+              :loading="loading && !campaign"
+              :submitting="submitting"
+              :message="formMessage"
+              @submit="handleFormSubmit"
+            />
+          </div>
         </div>
+      </div>
     </div>
+  </div>
 </template>
