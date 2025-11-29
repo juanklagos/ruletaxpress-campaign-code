@@ -8,8 +8,9 @@ const props = defineProps<{
     campaignExpired?: boolean;
 }>();
 
+type PlayDataItem = { value: string; type: string; label?: string }
 const emits = defineEmits<{
-    (event: 'submit', payload: Record<string, string>): void;
+    (event: 'submit', payload: Record<string, string>, playData: Record<string, PlayDataItem>): void;
     (event: 'ready', isReady: boolean): void;
 }>();
 
@@ -205,18 +206,29 @@ const handleSubmit = () => {
     }
 
     // normalize values: booleans -> '1'|'0', others -> string
-    const payload: Record<string, string> = {};
-    Object.entries(formState).forEach(([key, value]) => {
-        if (typeof value === 'boolean') {
-            payload[key] = value ? '1' : '0';
-        } else if (value === null || value === undefined) {
-            payload[key] = '';
-        } else {
-            payload[key] = String(value);
-        }
-    });
+    const payload: Record<string, string> = {}
+    const playData: Record<string, PlayDataItem> = {}
 
-    emits('submit', payload);
+    // Build payload and playData using the canonical `fields` so we keep type/label metadata
+    fields.value.forEach((field: any) => {
+        const key = field.key
+        const raw = formState[key]
+        let valueStr = ''
+        if (typeof raw === 'boolean') {
+            valueStr = raw ? '1' : '0'
+        } else if (raw === null || raw === undefined) {
+            valueStr = ''
+        } else {
+            valueStr = String(raw)
+        }
+
+        payload[key] = valueStr
+        playData[key] = { value: valueStr, type: String(field.type || ''), label: field.label }
+    })
+
+    console.log('submitting form', payload, playData);
+
+    emits('submit', payload, playData)
     formMessage.value = '¡Todo listo para registrar tu participación!';
     submitting.value = false;
 };
