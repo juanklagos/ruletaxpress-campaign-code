@@ -15,7 +15,13 @@ const campaign = ref<CampaignData | null>(null)
 const formReady = ref(false)
 const formValid = ref(false)
 const submittedData = ref<Record<string, string> | null>(null)
-const spinResult = ref<{ prize: string; formData: Record<string, string> | null } | null>(null)
+const submittedPlayData = ref<Record<string, { value: string; type: string; label?: string }> | null>(null)
+const spinResult = ref<{
+  prize: string
+  formData: Record<string, string> | null
+  segment?: any
+  submission?: any
+} | null>(null)
 
 const campaignImageUrl = computed<string | null>(() => {
   try {
@@ -76,10 +82,11 @@ const endsAtDisplay = computed<string | null>(() => {
 
 
 
-const handleFormSubmit = (values: Record<string, string>) => {
-  console.log('form submitted', values)
+const handleFormSubmit = (values: Record<string, string>, playData?: Record<string, { value: string; type: string; label?: string }>) => {
+  console.log('form submitted', values, playData)
   // Save submitted data and enable the wheel
   submittedData.value = values
+  submittedPlayData.value = playData ?? null
   formReady.value = true
 }
 
@@ -88,9 +95,24 @@ const handleFormReady = (ready: boolean) => {
   formValid.value = ready
 }
 
-const handleSpinFinished = (payload: { prize?: string } | any) => {
+const handleSpinFinished = (payload: { prize?: string; segment?: any } | any) => {
   const prize = payload?.prize ?? (payload?.result ?? 'Premio desconocido')
-  spinResult.value = { prize, formData: submittedData.value }
+  const segment = payload?.segment ?? null
+
+  // Build final submission payload to send to backend (or inspect in console)
+  const submission = {
+    prize,
+    segment,
+    form: submittedData.value,
+    playData: submittedPlayData.value,
+    campaign_id: (campaign.value as any)?.id ?? null,
+    timestamp: new Date().toISOString(),
+  }
+
+  // Save in state and log for inspection
+  spinResult.value = { prize, formData: submittedData.value, segment, submission }
+  console.log('Final submission prepared for backend:', submission)
+
   // Optionally, disable further spins until user resubmits
   formReady.value = false
 }
@@ -180,6 +202,20 @@ onMounted(() => {
                 <strong class="mr-2">{{ k }}:</strong> {{ v }}
               </li>
             </ul>
+          </div>
+          <div v-if="spinResult.segment" class="mt-3 text-sm">
+            <h4 class="font-semibold">Segmento ganador:</h4>
+            <ul class="mt-2 list-disc list-inside">
+              <li v-if="spinResult.segment.cupon"><strong class="mr-2">Cupón:</strong> {{ spinResult.segment.cupon }}</li>
+              <li v-else-if="spinResult.segment.label"><strong class="mr-2">Label:</strong> {{ spinResult.segment.label }}</li>
+              <li v-if="spinResult.segment.link"><strong class="mr-2">Link:</strong> {{ spinResult.segment.link }}</li>
+              <li v-if="spinResult.segment.image"><strong class="mr-2">Imagen:</strong> <img :src="spinResult.segment.image" class="inline-block max-w-[120px] h-auto rounded ml-2" /></li>
+            </ul>
+          </div>
+
+          <div v-if="spinResult.submission" class="mt-4 text-xs">
+            <h4 class="font-semibold">Objeto preparado (envío):</h4>
+            <pre class="mt-2 p-2 bg-black/10 rounded text-xs overflow-auto">{{ JSON.stringify(spinResult.submission, null, 2) }}</pre>
           </div>
         </div>
   </div>

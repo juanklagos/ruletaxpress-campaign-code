@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import Winwheel from '@/types/Winwheel'
 import type {
-  WinwheelAnimation,
   WinwheelConstructor,
   WinwheelInstance,
   WinwheelOptions,
   WinwheelPins,
-  WinwheelSegment,
 } from '@/types/winwheel-types'
 // wheel-config types intentionally not imported here to avoid strict coupling
 import type { CampaignData } from '@/types/campaign'
@@ -26,7 +24,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'finished', payload: { prize?: string } ): void
+  (e: 'finished', payload: { prize?: string; segment?: any } ): void
 }>()
 
 type PointerStyle = 'triangle' | 'arrow' | 'diamond' | 'kite' | 'shield' | 'tag' | 'chevron'
@@ -39,7 +37,6 @@ type PointerPosition =
   | 'bottom-left'
   | 'left'
   | 'top-left'
-type WheelPosition = 'center' | 'left' | 'right' | 'top' | 'bottom'
 type ButtonPosition = 'center' | 'outside'
 
 
@@ -62,17 +59,6 @@ const isReady = computed(() => Boolean(props.formReady) && !Boolean(props.campai
 
 const wheelPlacementStyle = computed(() => ({ justifySelf: 'center', alignSelf: 'center' }))
 
-const pointerAngles: Record<PointerPosition, number> = {
-  top: 0,
-  'top-right': 45,
-  right: 90,
-  'bottom-right': 135,
-  bottom: 180,
-  'bottom-left': 225,
-  left: 270,
-  'top-left': 315,
-}
-
 const pointerPlacement: Record<
   PointerPosition,
   { left: string; top: string; rot: string }
@@ -86,57 +72,6 @@ const pointerPlacement: Record<
   left: { left: '-1%', top: '50%', rot: '270deg' },
   'top-left': { left: '10%', top: '8%', rot: '315deg' },
 }
-
-const wheelPlacement = {
-  center: { justifySelf: 'center', alignSelf: 'center' },
-  left: { justifySelf: 'start', alignSelf: 'center' },
-  right: { justifySelf: 'end', alignSelf: 'center' },
-  top: { justifySelf: 'center', alignSelf: 'start' },
-  bottom: { justifySelf: 'center', alignSelf: 'end' },
-}
-
-const templateOptions = [
-  { value: 'vibrante', label: 'Vibrante de 8' },
-  { value: 'donut', label: 'Donut minimal' },
-  { value: 'gourmet', label: 'Gourmet' },
-  { value: 'monocroma', label: 'Monocroma' },
-  { value: 'festiva', label: 'Festiva con pins' },
-  { value: 'temus', label: 'Temus (cupones)' },
-]
-
-const pointerOptions: { value: PointerStyle; label: string }[] = [
-  { value: 'triangle', label: 'Triángulo' },
-  { value: 'arrow', label: 'Flecha' },
-  { value: 'diamond', label: 'Rombo' },
-  { value: 'kite', label: 'Cometa' },
-  { value: 'shield', label: 'Escudo' },
-  { value: 'tag', label: 'Etiqueta' },
-  { value: 'chevron', label: 'Chevron' },
-]
-
-const pointerPositionOptions: { value: PointerPosition; label: string }[] = [
-  { value: 'top', label: 'Arriba' },
-  { value: 'top-right', label: 'Arriba derecha' },
-  { value: 'right', label: 'Derecha' },
-  { value: 'bottom-right', label: 'Abajo derecha' },
-  { value: 'bottom', label: 'Abajo' },
-  { value: 'bottom-left', label: 'Abajo izquierda' },
-  { value: 'left', label: 'Izquierda' },
-  { value: 'top-left', label: 'Arriba izquierda' },
-]
-
-const wheelPositionOptions: { value: WheelPosition; label: string }[] = [
-  { value: 'center', label: 'Centro' },
-  { value: 'left', label: 'Izquierda' },
-  { value: 'right', label: 'Derecha' },
-  { value: 'top', label: 'Arriba' },
-  { value: 'bottom', label: 'Abajo' },
-]
-
-const spinPositionOptions: { value: ButtonPosition; label: string }[] = [
-  { value: 'center', label: 'Centro (dentro)' },
-  { value: 'outside', label: 'Exterior (debajo)' },
-]
 
 // audio options not required in this card component
 
@@ -165,12 +100,14 @@ const campaignConfig = computed(() => {
   return (props.campaign as any)?.campaign_game?.config ?? null
 })
 
-const campaignSegments = computed<WinwheelSegment[]>(() => {
+const campaignSegments = computed<any[]>(() => {
   const raw = campaignConfig.value?.segments
   if (!raw || !raw.length) {
     return defaultWheelConfig.segments
   }
   return raw.map((s: any, i: number) => ({
+    // Preserve all backend-provided keys and normalize a few required ones for Winwheel
+    ...s,
     fillStyle: s.fillStyle ?? defaultWheelConfig.segments[i % defaultWheelConfig.segments.length].fillStyle,
     strokeStyle: s.strokeStyle ?? '#111827',
     lineWidth: s.lineWidth ?? 1,
@@ -229,8 +166,9 @@ const buildWheel = () => {
       callbackFinished: () => {
         isSpinning.value = false
 
-        // Try to determine the winning segment text
+        // Try to determine the winning segment text and capture the full segment object
         let prize = 'Premio desconocido'
+        let winningSegment: any = null
         try {
           const w: any = wheel.value
           // Winwheel exposes helpers like getIndicatedSegment() or getIndicatedSegmentNumber()
@@ -238,17 +176,24 @@ const buildWheel = () => {
           const indicatedNumber = typeof w?.getIndicatedSegmentNumber === 'function' ? w.getIndicatedSegmentNumber() : undefined
 
           if (indicatedSegment) {
+            // Save and log full indicated segment for inspection
+            winningSegment = indicatedSegment
+            console.log('Winwheel indicatedSegment:', indicatedSegment)
             prize = indicatedSegment.text ?? indicatedSegment.label ?? prize
           } else if (typeof indicatedNumber === 'number' && Array.isArray(w?.segments)) {
             // segments might be 1-indexed in Winwheel
             const seg = w.segments[indicatedNumber] ?? w.segments[indicatedNumber - 1]
+            winningSegment = seg
+            // Log computed segment and full segments array for inspection
+            console.log('Winwheel indicatedNumber:', indicatedNumber, 'computedSegment:', seg, 'allSegments:', w.segments)
             if (seg) prize = seg.text ?? seg.label ?? prize
           }
         } catch {
           // ignore and fallback to unknown prize
         }
 
-        emit('finished', { prize })
+        // Emit both prize and the full segment object so the parent can combine it with form data
+        emit('finished', { prize, segment: winningSegment })
       },
       callbackSound: null,
       soundTrigger: animation.soundTrigger ?? undefined,
