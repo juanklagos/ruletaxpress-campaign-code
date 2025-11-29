@@ -60,6 +60,7 @@ export type WinwheelInstance = {
   stopAnimation: (stopSpin: boolean) => void
   draw: () => void
   getIndicatedSegment: () => WinwheelSegment
+  getRandomForSegment?: (segmentNumber: number) => number
 }
 
 export type WinwheelConstructor = new (

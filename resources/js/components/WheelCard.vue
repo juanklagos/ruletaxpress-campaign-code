@@ -54,6 +54,7 @@ const buttonPosition = ref<ButtonPosition>('center')
 const buttonSize = ref(130)
 const pointerEl = ref<HTMLElement | null>(null)
 const spinButtonRef = ref<HTMLButtonElement | null>(null)
+const tickAudio = ref<HTMLAudioElement | null>(null)
 
 const isReady = computed(() => Boolean(props.formReady) && !Boolean(props.campaignExpired))
 
@@ -115,10 +116,58 @@ const campaignSegments = computed<any[]>(() => {
   }))
 })
 
+const weightedSegments = computed(() => {
+  const segments = campaignSegments.value
+  if (!segments.length) return []
+
+  return segments.map((segment: any, index: number) => {
+    const rawProbability = Number((segment as any)?.probability)
+    const baseWeight = Number.isFinite(rawProbability) && rawProbability > 0 ? rawProbability : 1
+    const isLosing = Boolean((segment as any)?.losingSegment)
+    const weight = isLosing ? Math.max(baseWeight * 0.01, 0.01) : baseWeight
+
+    return {
+      segment,
+      weight,
+      number: index + 1, // Winwheel segments are 1-indexed
+    }
+  })
+})
+
+const pickWeightedSegmentNumber = (): number | null => {
+  if (!weightedSegments.value.length) return null
+  const totalWeight = weightedSegments.value.reduce((sum, entry) => sum + entry.weight, 0)
+  if (!Number.isFinite(totalWeight) || totalWeight <= 0) {
+    return weightedSegments.value[weightedSegments.value.length - 1]?.number ?? null
+  }
+
+  const roll = Math.random() * totalWeight
+  let acc = 0
+  for (const entry of weightedSegments.value) {
+    acc += entry.weight
+    if (roll <= acc) {
+      return entry.number
+    }
+  }
+
+  return weightedSegments.value[weightedSegments.value.length - 1]?.number ?? null
+}
+
 const applyPointerAngle = () => {
   if (!wheel.value) return
   wheel.value.pointerAngle = (campaignConfig.value?.pointerAngle ?? 0) || 0
   wheel.value.draw()
+}
+
+const playTick = () => {
+  if (!tickAudio.value) return
+  try {
+    tickAudio.value.pause()
+    tickAudio.value.currentTime = 0
+    void tickAudio.value.play()
+  } catch {
+    // ignore playback errors (autoplay restrictions, etc.)
+  }
 }
 
 const buildWheel = () => {
@@ -165,6 +214,8 @@ const buildWheel = () => {
       easing: animation.easing ?? 'Power4.easeOut',
       direction: animation.direction ?? undefined,
       stopAngle: animation.stopAngle ?? undefined,
+      callbackSound: playTick,
+      soundTrigger: animation.soundTrigger ?? 'pin',
       callbackFinished: () => {
         isSpinning.value = false
 
@@ -197,8 +248,6 @@ const buildWheel = () => {
         // Emit both prize and the full segment object so the parent can combine it with form data
         emit('finished', { prize, segment: winningSegment })
       },
-      callbackSound: null,
-      soundTrigger: animation.soundTrigger ?? undefined,
     },
     segments,
     pins: pinsFromConfig ?? undefined,
@@ -212,9 +261,30 @@ const buildWheel = () => {
 
 const handleSpin = () => {
   if (!isReady.value || isSpinning.value || !wheel.value) return
+
+  const targetSegmentNumber = pickWeightedSegmentNumber()
+  if (!targetSegmentNumber || !wheel.value.animation) return
+
+  const winwheel = wheel.value as WinwheelInstance & { getRandomForSegment?: (segmentNumber: number) => number }
+  const angleFromHelper =
+    typeof winwheel.getRandomForSegment === 'function' ? winwheel.getRandomForSegment(targetSegmentNumber) : undefined
+
+  let resolvedStopAngle = angleFromHelper
+
+  if (typeof resolvedStopAngle !== 'number' || Number.isNaN(resolvedStopAngle)) {
+    const segmentsCount = weightedSegments.value.length
+    if (!segmentsCount) return
+    const angleSize = 360 / segmentsCount
+    const safePadding = 1
+    const startAngle = angleSize * (targetSegmentNumber - 1)
+    resolvedStopAngle = startAngle + safePadding + Math.random() * Math.max(angleSize - safePadding * 2, 0)
+  }
+
+  winwheel.animation.stopAngle = resolvedStopAngle
+
   isSpinning.value = true
   try {
-    wheel.value.startAnimation()
+    winwheel.startAnimation()
   } catch {
     isSpinning.value = false
   }
@@ -245,6 +315,7 @@ watch(
 )
 
 onMounted(() => {
+  tickAudio.value = new Audio('/sound/tick.mp3')
   buildWheel()
 })
 
