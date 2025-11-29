@@ -48,6 +48,8 @@ const spinResult = ref<{
 } | null>(null)
 const submissionError = ref<SubmissionErrorState | null>(null)
 const isErrorModalOpen = ref(false)
+const isSuccessModalOpen = ref(false)
+const successMessage = ref<string | null>(null)
 
 const campaignImageUrl = computed<string | null>(() => {
   try {
@@ -189,11 +191,19 @@ const handleErrorModalChange = (open: boolean): void => {
   isErrorModalOpen.value = open
   if (!open) {
     submissionError.value = null
+    reloadPage()
   }
 }
 
 const reloadPage = (): void => {
   window.location.reload()
+}
+
+const handleSuccessModalChange = (open: boolean): void => {
+  isSuccessModalOpen.value = open
+  if (!open) {
+    reloadPage()
+  }
 }
 
 const handleSpinFinished = async (payload: { prize?: string; segment?: any } | any) => {
@@ -218,11 +228,10 @@ const handleSpinFinished = async (payload: { prize?: string; segment?: any } | a
   try {
     const url = `https://ruletaxpress.pro/api/campaigns/code/${encodeURIComponent(code.value)}/submissions`
     const resp = await axios.post(url, submission, { headers: { 'Content-Type': 'application/json' } })
-    const message = resp?.data?.message ?? 'Envío exitoso'
-    // show result in an alert as requested
-    alert(`Envío correcto: ${message}`)
-    // Store server response for debugging/UI
+    const message = resp?.data?.message ?? '¡Registro exitoso!'
+    successMessage.value = message
     spinResult.value = { ...spinResult.value, serverResponse: resp.data }
+    isSuccessModalOpen.value = true
   } catch (err) {
     handleSubmissionError(err)
   }
@@ -306,32 +315,6 @@ onMounted(() => {
           <p class="mt-3 text-xs tracking-[0.3em]">
           POWER BY RULETAXPRESS
         </p>
-        <div v-if="spinResult" class="mt-6 rounded-lg border p-4 bg-white/5">
-          <h3 class="text-lg font-semibold">Resultado</h3>
-          <p class="mt-2 font-medium">Ganaste: <span class="text-amber-400">{{ spinResult.prize }}</span></p>
-          <div v-if="spinResult.formData" class="mt-3 text-sm">
-            <h4 class="font-semibold">Datos enviados:</h4>
-            <ul class="mt-2 list-disc list-inside">
-              <li v-for="(v, k) in spinResult.formData" :key="k">
-                <strong class="mr-2">{{ k }}:</strong> {{ v }}
-              </li>
-            </ul>
-          </div>
-          <div v-if="spinResult.segment" class="mt-3 text-sm">
-            <h4 class="font-semibold">Segmento ganador:</h4>
-            <ul class="mt-2 list-disc list-inside">
-              <li v-if="spinResult.segment.cupon"><strong class="mr-2">Cupón:</strong> {{ spinResult.segment.cupon }}</li>
-              <li v-else-if="spinResult.segment.label"><strong class="mr-2">Label:</strong> {{ spinResult.segment.label }}</li>
-              <li v-if="spinResult.segment.link"><strong class="mr-2">Link:</strong> {{ spinResult.segment.link }}</li>
-              <li v-if="spinResult.segment.image"><strong class="mr-2">Imagen:</strong> <img :src="spinResult.segment.image" class="inline-block max-w-[120px] h-auto rounded ml-2" /></li>
-            </ul>
-          </div>
-
-          <div v-if="spinResult.submission" class="mt-4 text-xs">
-            <h4 class="font-semibold">Objeto preparado (envío):</h4>
-            <pre class="mt-2 p-2 bg-black/10 rounded text-xs overflow-auto">{{ JSON.stringify(spinResult.submission, null, 2) }}</pre>
-          </div>
-        </div>
     <Dialog :open="isErrorModalOpen" @update:open="handleErrorModalChange">
       <DialogContent class="sm:max-w-lg">
         <DialogHeader class="space-y-2">
@@ -359,6 +342,31 @@ onMounted(() => {
             Reintentar
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog :open="isSuccessModalOpen" @update:open="handleSuccessModalChange">
+      <DialogContent class="sm:max-w-lg overflow-hidden bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500 text-white shadow-2xl">
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.25),_transparent_45%)] opacity-80 pointer-events-none" />
+        <div class="relative space-y-4">
+          <DialogHeader class="space-y-1 text-center">
+            <DialogTitle class="text-3xl font-black drop-shadow-lg">¡Premio conseguido!</DialogTitle>
+            <DialogDescription class="text-base text-white/90">
+              Te enviaremos un correo con las instrucciones para reclamarlo.
+            </DialogDescription>
+          </DialogHeader>
+          <div class="rounded-2xl bg-white/15 px-5 py-4 backdrop-blur shadow-inner text-center">
+            <p class="text-sm uppercase tracking-[0.35em] text-white/80">Tu premio</p>
+            <p class="mt-2 text-3xl font-black leading-tight drop-shadow">
+              {{ spinResult?.prize ?? 'Premio sorpresa' }}
+            </p>
+            <p v-if="successMessage" class="mt-2 text-sm text-white/85">{{ successMessage }}</p>
+          </div>
+          <DialogFooter class="flex justify-center">
+            <Button type="button" class="bg-white text-orange-600 hover:bg-white/90" @click="handleSuccessModalChange(false)">
+              ¡Listo!
+            </Button>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   </div>
