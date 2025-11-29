@@ -20,7 +20,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
               if ($this->app->environment('production')) {
-                    URL::forceRootUrl(config('app.url'));   // https://ruletaxpress.pro
+                  //  URL::forceRootUrl(config('app.url'));   // https://ruletaxpress.pro
                     URL::forceScheme('https');              // siempre https
                 }
     }
