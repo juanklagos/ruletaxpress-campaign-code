@@ -4,9 +4,32 @@ import { Head } from '@inertiajs/vue3'
 import { computed, onMounted, ref } from 'vue'
 import WheelCard from '@/components/WheelCard.vue'
 import GameForm from '@/components/GameForm.vue'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import type { CampaignData } from '@/types/campaign'
 
 const props = defineProps<{ code: string }>()
+
+type ApiErrorPayload = {
+  status?: string
+  code?: string
+  message?: string
+}
+
+type SubmissionErrorState = {
+  title: string
+  message: string
+  code?: string
+  status?: string
+  httpStatus?: number
+}
 
 const code = ref(props.code)
 const loading = ref(true)
@@ -21,7 +44,10 @@ const spinResult = ref<{
   formData: Record<string, string> | null
   segment?: any
   submission?: any
+  serverResponse?: any
 } | null>(null)
+const submissionError = ref<SubmissionErrorState | null>(null)
+const isErrorModalOpen = ref(false)
 
 const campaignImageUrl = computed<string | null>(() => {
   try {
@@ -95,11 +121,86 @@ const handleFormReady = (ready: boolean) => {
   formValid.value = ready
 }
 
-const handleSpinFinished = (payload: { prize?: string; segment?: any } | any) => {
+const resetGameState = (): void => {
+  submittedData.value = null
+  submittedPlayData.value = null
+  formReady.value = false
+  formValid.value = false
+  spinResult.value = null
+}
+
+const errorCatalog: Record<string, { title: string; message: string }> = {
+  campaign_not_found: {
+    title: 'Campaña no encontrada',
+    message: 'Campaign not found or has no game configured.',
+  },
+  campaign_mismatch: {
+    title: 'Código de campaña no coincide',
+    message: 'The campaign does not match the provided code.',
+  },
+  missing_email: {
+    title: 'Falta el correo electrónico',
+    message: 'Email is required to participate.',
+  },
+  already_participated: {
+    title: 'Ya participaste en esta campaña',
+    message: 'Ya participaste en esta campaña.',
+  },
+  campaign_full: {
+    title: 'Cupo lleno',
+    message: 'Esta campaña ya alcanzó el número máximo de participantes.',
+  },
+  campaign_ended: {
+    title: 'Campaña finalizada',
+    message: 'Esta campaña ya finalizó.',
+  },
+}
+
+const extractSubmissionError = (err: unknown): SubmissionErrorState => {
+  if (axios.isAxiosError(err)) {
+    const payload = err.response?.data as ApiErrorPayload | undefined
+    const code = payload?.code
+    const mapped = code ? errorCatalog[code] : null
+
+    return {
+      title: mapped?.title ?? 'No pudimos registrar tu participación',
+      message: mapped?.message ?? payload?.message ?? err.message,
+      code,
+      status: payload?.status,
+      httpStatus: err.response?.status,
+    }
+  }
+
+  return {
+    title: 'No pudimos registrar tu participación',
+    message: 'Ocurrió un error al enviar tus datos. Intenta nuevamente.',
+  }
+}
+
+const handleSubmissionError = (err: unknown): void => {
+  const details = extractSubmissionError(err)
+  console.error('Submission POST error:', err)
+  submissionError.value = details
+  isErrorModalOpen.value = true
+  resetGameState()
+}
+
+const handleErrorModalChange = (open: boolean): void => {
+  isErrorModalOpen.value = open
+  if (!open) {
+    submissionError.value = null
+  }
+}
+
+const reloadPage = (): void => {
+  window.location.reload()
+}
+
+const handleSpinFinished = async (payload: { prize?: string; segment?: any } | any) => {
   const prize = payload?.prize ?? (payload?.result ?? 'Premio desconocido')
   const segment = payload?.segment ?? null
 
-  // Build final submission payload to send to backend (or inspect in console)
+  // Build final submission payload to send to backend
   const submission = {
     prize,
     segment,
@@ -112,6 +213,19 @@ const handleSpinFinished = (payload: { prize?: string; segment?: any } | any) =>
   // Save in state and log for inspection
   spinResult.value = { prize, formData: submittedData.value, segment, submission }
   console.log('Final submission prepared for backend:', submission)
+
+  // Send to backend endpoint for this campaign code
+  try {
+    const url = `https://ruletaxpress.pro/api/campaigns/code/${encodeURIComponent(code.value)}/submissions`
+    const resp = await axios.post(url, submission, { headers: { 'Content-Type': 'application/json' } })
+    const message = resp?.data?.message ?? 'Envío exitoso'
+    // show result in an alert as requested
+    alert(`Envío correcto: ${message}`)
+    // Store server response for debugging/UI
+    spinResult.value = { ...spinResult.value, serverResponse: resp.data }
+  } catch (err) {
+    handleSubmissionError(err)
+  }
 
   // Optionally, disable further spins until user resubmits
   formReady.value = false
@@ -161,10 +275,10 @@ onMounted(() => {
   <img
     :src="campaignImageUrl"
     :alt="campaign?.company_name || 'Campaign image'"
-    class="max-w-[250px] h-auto rounded-lg shadow-md"
+    class="max-w-[250px] h-auto rounded-lg shadow-md uppercase"
   />
   <div class="text-center md:text-left">
-    <h2 :class="[companyNameClass, 'text-xl md:text-2xl font-semibold tracking-tight']">{{ campaign?.company_name }}</h2>
+    <h2 :class="[companyNameClass, 'text-xl md:text-2xl font-semibold tracking-tight uppercase']">{{ campaign?.company_name }}</h2>
   </div>
 </div>
 
@@ -218,5 +332,34 @@ onMounted(() => {
             <pre class="mt-2 p-2 bg-black/10 rounded text-xs overflow-auto">{{ JSON.stringify(spinResult.submission, null, 2) }}</pre>
           </div>
         </div>
+    <Dialog :open="isErrorModalOpen" @update:open="handleErrorModalChange">
+      <DialogContent class="sm:max-w-lg">
+        <DialogHeader class="space-y-2">
+          <DialogTitle class="text-xl font-semibold text-red-600 dark:text-red-400">
+            {{ submissionError?.title ?? 'No pudimos registrar tu participación' }}
+          </DialogTitle>
+          <DialogDescription class="text-sm text-slate-600 dark:text-slate-200/80">
+            {{ submissionError?.message ?? 'Ocurrió un error al enviar tus datos. Intenta nuevamente.' }}
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-2 text-sm text-slate-600 dark:text-slate-200/80">
+          <p v-if="submissionError?.code" class="font-medium text-slate-800 dark:text-white">
+            Código: <span class="font-normal">{{ submissionError.code }}</span>
+          </p>
+          <p v-if="submissionError?.httpStatus" class="font-medium text-slate-800 dark:text-white">
+            Estado HTTP: <span class="font-normal">{{ submissionError.httpStatus }}</span>
+          </p>
+          <p class="leading-relaxed">Reiniciamos el formulario para que puedas intentarlo de nuevo.</p>
+        </div>
+        <DialogFooter>
+          <Button variant="secondary" @click="reloadPage">
+            Cerrar
+          </Button>
+          <Button type="button" @click="reloadPage">
+            Reintentar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

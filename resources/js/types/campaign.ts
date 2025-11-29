@@ -24,6 +24,21 @@ export type CampaignGame = {
       lineWidth?: number
       label?: string
       cupon?: string
+      coupon_code?: string
+      textFontFamily?: string | null
+      textFontSize?: number | null
+      textFontWeight?: string | null
+      textFillStyle?: string | null
+      textStrokeStyle?: string | null
+      textMargin?: number | null
+      textAlignment?: string | null
+      textDirection?: string | null
+      image?: string | null
+      imageDirection?: string | null
+      link?: string | null
+      losingSegment?: boolean
+      id?: number | null
+      probability?: number
     }>
     animation?: Record<string, number | string>
     outerRadius?: number
@@ -40,9 +55,14 @@ export type CampaignGame = {
         | 'left'
         | 'top-left'
       color?: string
+      integratedOnButton?: boolean
     }
     lineWidth?: number
     strokeStyle?: string
+    button?: {
+      position?: 'center' | 'outside'
+      size?: number
+    }
   }
 }
 

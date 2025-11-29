@@ -111,7 +111,7 @@ const campaignSegments = computed<any[]>(() => {
     fillStyle: s.fillStyle ?? defaultWheelConfig.segments[i % defaultWheelConfig.segments.length].fillStyle,
     strokeStyle: s.strokeStyle ?? '#111827',
     lineWidth: s.lineWidth ?? 1,
-    text: s.text ?? s.label ?? s.cupon ?? `Premio ${i + 1}`,
+    text: s.text ?? s.label ?? s.coupon_code ?? `Premio ${i + 1}`,
   }))
 })
 
@@ -124,6 +124,8 @@ const applyPointerAngle = () => {
 const buildWheel = () => {
   const cfg: any = campaignConfig.value
   if (!cfg) return
+
+  const segments = campaignSegments.value
 
   if (wheel.value) {
     isSpinning.value = false
@@ -148,7 +150,7 @@ const buildWheel = () => {
   const options: WinwheelOptions = {
     canvasId: cfg.canvasId ?? canvasId,
     canvasElement: canvasRef.value ?? undefined,
-    numSegments: cfg.numSegments ?? campaignSegments.value.length,
+    numSegments: segments.length,
     outerRadius: cfg.outerRadius ?? (defaultWheelConfig?.wheel?.outerRadius ?? 210),
     innerRadius: cfg.innerRadius ?? (defaultWheelConfig?.wheel?.innerRadius ?? 0),
     textFontSize: cfg.textFontSize ?? (defaultWheelConfig?.wheel?.textFontSize ?? 14),
@@ -198,7 +200,7 @@ const buildWheel = () => {
       callbackSound: null,
       soundTrigger: animation.soundTrigger ?? undefined,
     },
-    segments: campaignSegments.value,
+    segments,
     pins: pinsFromConfig ?? undefined,
     clearTheCanvas: cfg.clearTheCanvas ?? true,
   }
