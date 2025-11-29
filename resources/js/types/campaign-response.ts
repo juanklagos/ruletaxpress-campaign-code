@@ -22,8 +22,20 @@ export type CampaignResponse = {
     id: number
     name: string
   }
-  media: unknown[]
+  media: MediaItem[]
   campaign_game: CampaignGame
+}
+
+export type MediaItem = {
+  id: number
+  name: string
+  file_name: string
+  mime_type: string
+  size: number
+  url: string
+  collection?: string | null
+  // optional fields commonly used for images
+  alt?: string | null
 }
 
 export type CampaignGame = {
@@ -36,7 +48,7 @@ export type CampaignGame = {
   ends_at: string | null
   max_plays_per_subscriber: number | null
   max_total_plays: number | null
-  media: unknown[]
+  media: MediaItem[]
 }
 
 export type CampaignGameConfig = {

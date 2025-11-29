@@ -22,6 +22,7 @@ const props = defineProps<{
   formReady?: boolean
   formData?: Record<string, string> | null
   fullLayout?: boolean
+  campaignExpired?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -57,7 +58,7 @@ const buttonSize = ref(130)
 const pointerEl = ref<HTMLElement | null>(null)
 const spinButtonRef = ref<HTMLButtonElement | null>(null)
 
-const isReady = computed(() => Boolean(props.formReady))
+const isReady = computed(() => Boolean(props.formReady) && !Boolean(props.campaignExpired))
 
 const wheelPlacementStyle = computed(() => ({ justifySelf: 'center', alignSelf: 'center' }))
 
@@ -157,7 +158,7 @@ const spinButtonStyle = computed(() => ({
 const spinButtonClasses = computed(() => ({
   'spin-button--outside': buttonPosition.value === 'outside',
   'spin-button--with-pointer': pointerOnButton.value,
-  'spin-button--disabled': !isReady.value || isSpinning.value,
+  'spin-button--disabled': !isReady.value || isSpinning.value || Boolean(props.campaignExpired),
 }))
 
 const campaignConfig = computed(() => {

@@ -5,6 +5,7 @@ import { computed, defineEmits, defineProps, reactive, ref, watch } from 'vue';
 
 const props = defineProps<{
     campaign: CampaignData | null;
+    campaignExpired?: boolean;
 }>();
 
 const emits = defineEmits<{
@@ -241,6 +242,9 @@ function setIsOpen(value: boolean) {
 
 <template>
     <div>
+        <div v-if="props.campaignExpired" class="mb-4 rounded-md bg-red-600/90 text-white p-3 text-center">
+            <strong>La campaña ha finalizado y no acepta más participaciones.</strong>
+        </div>
         <div class="space-y-2">
             <h2 class="text-3xl font-bold text-amber-500">
                 {{ header.title }}
@@ -283,15 +287,16 @@ function setIsOpen(value: boolean) {
                     {{ field.label }}
                 </label>
                 <template v-if="field.type === 'textarea'">
-                    <textarea
+                        <textarea
                         :id="field.key"
                         v-model="formState[field.key]"
                         :placeholder="field.placeholder ?? ''"
                         :required="field.required"
-                        :class="[
+                            :class="[
                             'h-28 w-full rounded-2xl px-4 py-3 text-sm transition outline-none',
                             themeClasses.input,
                         ]"
+                            :disabled="props.campaignExpired"
                     ></textarea>
                 </template>
                 <template v-else-if="field.type === 'select'">
@@ -303,6 +308,7 @@ function setIsOpen(value: boolean) {
                             'w-full rounded-2xl px-4 py-3 text-sm transition outline-none',
                             themeClasses.input,
                         ]"
+                        :disabled="props.campaignExpired"
                     >
                         <option value="" disabled selected>
                             Selecciona...
@@ -326,6 +332,7 @@ function setIsOpen(value: boolean) {
                             themeClasses.input,
                         ]"
                         @click="formState[field.key] = !formState[field.key]"
+                        :disabled="props.campaignExpired"
                     >
                         <span :class="themeClasses.primary">{{
                             field.label
@@ -346,6 +353,7 @@ function setIsOpen(value: boolean) {
                             'w-full rounded-2xl px-4 py-3 text-sm transition outline-none',
                             themeClasses.input,
                         ]"
+                        :disabled="props.campaignExpired"
                     />
                 </template>
                 <p v-if="errors[field.key]" :class="['text-xs text-red-500']">
@@ -366,7 +374,7 @@ function setIsOpen(value: boolean) {
                         { background: activeBackground },
                         { color: buttonStyle.color },
                     ]"
-                    :disabled="submitting || !fields.length || !isValid"
+                    :disabled="submitting || !fields.length || !isValid || props.campaignExpired"
                     @mouseenter="isHovering = true"
                     @mouseleave="isHovering = false"
                 >
